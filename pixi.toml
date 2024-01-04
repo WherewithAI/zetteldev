@@ -8,11 +8,21 @@ platforms = ["osx-arm64"]
 
 [tasks]
 # install the library in editable mode
-install = "pip install --editable ."
+install = "pip install --no-build-isolation --no-deps --disable-pip-version-check --editable ."
 # test the installation
 import = "python -c 'import repo_name'"
+
 ## NBDev shorthands
 # export code from notebooks into the library
+nbsync = "nbdev_export"
+# sync changes from library to notebooks
+pysync = "nbdev_update"
+# build docs
+docs = "nbdev_docs && nbdev_readme"
+
+## Experiments 
+# export experiments to markdown with quarto
+zettels = "quarto render nbs/experiments --to markdown --output-dir zettels --no-execute"
 
 
 [dependencies]
