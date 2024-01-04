@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo_name"
+dynamic = ["version"]
+
+[project.optional-dependencies]
+tests = ["pytest"]
+
+[tool.setuptools]
+zip-safe = true
+# package_dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+# include = ["src", "src.*"]
+where = ["src"]

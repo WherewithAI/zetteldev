@@ -1,7 +1,7 @@
 [project]
-name = "repo-name"
+name = "repo_name"
 version = "0.1.0"
-description = "repo-description"
+description = "repo_description"
 authors = ["Kincaid MacDonald <dev@riddle.press>"]
 channels = ["conda-forge", "fastai", "pytorch"]
 platforms = ["osx-arm64"]
@@ -10,7 +10,10 @@ platforms = ["osx-arm64"]
 # install the library in editable mode
 install = "pip install --editable ."
 # test the installation
-import = "python -c 'import repo-name'"
+import = "python -c 'import repo_name'"
+## NBDev shorthands
+# export code from notebooks into the library
+
 
 [dependencies]
 # Common & Ubiquitous
@@ -23,24 +26,25 @@ ipykernel = "6.26.0.*"
 jupyter = "1.0.0.*"
 nbformat = "5.9.2.*"
 pandas = "2.1.3.*"
+# Literate Programming
+nbdev = "2.2.10.*"
+fastcore = "1.5.29.*"
 
 # Project Specific
-graphtools = "1.5.3.*"
-jax = "0.4.21.*"
-sympy = "1.12.*"
-rich = "13.7.0.*"
-typer = "0.9.0.*"
-pygsp = "0.5.1.*"
-tqdm = "4.66.1.*"
-plotly = "5.18.0.*"
-fastcore = "1.5.29.*"
-nbdev = "2.2.10.*"
-pytorch = "2.0.0.*"
-lightning = "2.1.2.*"
-seaborn = "0.13.0.*"
-h5py = "3.10.0.*"
+# graphtools = "1.5.3.*"
+# jax = "0.4.21.*"
+# sympy = "1.12.*"
+# rich = "13.7.0.*"
+# typer = "0.9.0.*"
+# pygsp = "0.5.1.*"
+# tqdm = "4.66.1.*"
+# plotly = "5.18.0.*"
+# pytorch = "2.0.0.*"
+# lightning = "2.1.2.*"
+# seaborn = "0.13.0.*"
+# h5py = "3.10.0.*"
 
 [pypi-dependencies]
-scikit-dimension = "==0.3.*"
-flax = ">=0.7.5"
+# scikit-dimension = "==0.3.*"
+# flax = ">=0.7.5"
 
