@@ -8,7 +8,7 @@ platforms = ["osx-arm64"]
 
 [tasks]
 # install the library in editable mode
-install = "pip install --no-build-isolation --no-deps --disable-pip-version-check --editable ."
+install = "pip install --no-build-isolation --no-deps --disable-pip-version-check --editable src"
 # test the installation
 import = "python -c 'import repo_name'"
 
