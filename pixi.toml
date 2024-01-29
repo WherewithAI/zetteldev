@@ -3,12 +3,13 @@ name = "repo_name"
 version = "0.1.0"
 description = "repo_description"
 authors = ["Kincaid MacDonald <dev@riddle.press>"]
-channels = ["conda-forge", "fastai", "pytorch"]
-platforms = ["osx-arm64"]
+channels = ["nvidia/label/cuda-12.1.0", "nvidia", "conda-forge", "pytorch"] # add with `pixi project channel add nvidia`; searches in left-most channels first and stops when the package is found. Best to order by recency of update, with pytorch at the end.
+# channels = ["conda-forge", "fastai", "pytorch", "nvidia"] 
+platforms = ["linux-64","osx-arm64"] 
 
 [tasks]
 # install the library in editable mode
-install = "pip install --no-build-isolation --no-deps --disable-pip-version-check --editable src"
+install-myself = "pip install --no-build-isolation --no-deps --disable-pip-version-check --editable src"
 # test the installation
 import = "python -c 'import repo_name'"
 
@@ -18,12 +19,14 @@ nbsync = "nbdev_export"
 # sync changes from library to notebooks
 pysync = "nbdev_update"
 # build docs
-docs = "nbdev_docs && nbdev_readme"
+docmaker = "nbdev_docs"
 
 ## Experiments 
 # export experiments to markdown with quarto
-zettels = "quarto render nbs/experiments --to markdown --output-dir zettels --no-execute"
+zettelmaker = "quarto render nbs/experiments --to gfm --no-execute --output-dir ../zettels --profile zettels"
 
+# Standard Interfaces
+jupyter = "jupyter notebook"
 
 [dependencies]
 # Common & Ubiquitous
@@ -42,19 +45,34 @@ fastcore = "1.5.29.*"
 
 # Project Specific
 # graphtools = "1.5.3.*"
-# jax = "0.4.21.*"
 # sympy = "1.12.*"
 # rich = "13.7.0.*"
 # typer = "0.9.0.*"
 # pygsp = "0.5.1.*"
 # tqdm = "4.66.1.*"
 # plotly = "5.18.0.*"
-# pytorch = "2.0.0.*"
 # lightning = "2.1.2.*"
 # seaborn = "0.13.0.*"
 # h5py = "3.10.0.*"
+# deepdish = ">=0.3.7,<0.4"
+# tabulate = ">=0.9.0,<0.10"
+# pot = ">=0.9.2,<0.10"
+# imageio = ">=2.33.1,<2.34"
+# marimo = ">=0.1.75,<0.2"
 
 [pypi-dependencies]
 # scikit-dimension = "==0.3.*"
 # flax = ">=0.7.5"
+# tadasets = "*"
+# torchdyn = "*"
+# phate = "*"
+# pykeops = "*" # currently a bug in pixi preventing installation - but you can 'pixi shell' then 'pip install'.
 
+[target.linux-64.dependencies] # assuming linux always has a gpu
+# pytorch = {version = "2.1.0", channel="pytorch"}
+# cuda = {version = "*", channel="nvidia/label/cuda-12.1.0"}
+# libnvjitlink = {version = "12.1.105", channel = "nvidia"} # if not installed before pytorch-cuda, pixi will freak out, probably because of overly strict channel requirements.
+# pytorch-cuda = {version = "12.1", channel="pytorch"}
+
+# [target.osx-arm64.dependencies]
+# pytorch = {version = "2.0.*", channel="pytorch"}

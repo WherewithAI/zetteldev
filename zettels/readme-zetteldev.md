@@ -25,3 +25,13 @@ If you need to install a *pip*-only package, run
 pixi add --pip package-name
 ```
 
+# Starting a new Zetteldev Project
+
+So you've just made a copy of the Zetteldev repo, and want to adapt it to your project. Here's a checklist. You gotta love checklists.
+
+1. Find & replace `repo_name` with the name of your project. This updates variables within pixi.toml, nbdev's settings.ini
+2. Do the same with `repo_description`
+3. Install the project by running `pixi install` inside of the directory.
+4. Make the package itself importable by running `pixi run install-myself`
+
+
