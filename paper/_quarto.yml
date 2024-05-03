@@ -1,6 +1,9 @@
 project:
   type: manuscript
 
+manuscript:
+  meca-bundle: false
+
 execute:
   freeze: auto
 
@@ -11,7 +14,7 @@ format:
       hypothesis: true
   docx: default
   jats: default
-  agu-pdf: default
+  ieee-pdf: default
 
-
+jupyter: repo_name-zetteldev
 
