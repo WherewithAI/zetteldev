@@ -43,7 +43,7 @@ fastcore = "1.5.29.*"
 
 [tool.pixi.tasks]
 # install the library in editable mode
-postinstall = "python -m ipykernel install --user --name r{{ cookiecutter.project_slug }}-zetteldev && nbdev_install_hooks"
+postinstall = "python -m ipykernel install --user --name {{ cookiecutter.project_slug }}-zetteldev && nbdev_install_hooks"
 # test the installation
 test_import = "python -c 'import {{ cookiecutter.project_slug }}'"
 # Adding and creating experiments
