@@ -22,7 +22,7 @@ citation:
 number-sections: true
 jupyter: {{ cookiecutter.project_slug }}-zetteldev
 ---
-
+{% raw %}
 ## Introduction
 
 Recent years have seen a growing appreciation that black-box machine learning methods can understand data better (and, in turn, be better understood) by incorporating geometric information.
@@ -39,3 +39,4 @@ Recent years have seen a growing appreciation that black-box machine learning me
 
 ::: {#refs}
 :::
+{% endraw %}
