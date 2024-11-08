@@ -9,6 +9,5 @@
   "repo_url": "https://github.com/{{ cookiecutter.github }}/{{ cookiecutter.project_slug }}",
   "email": "hey@kincaid.ink",
   "affiliation": "Princeton",
-  "ORCID": "0000-0002-0760-5497",
-
+  "ORCID": "0000-0002-0760-5497"
 }
