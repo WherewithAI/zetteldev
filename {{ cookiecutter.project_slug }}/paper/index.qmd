@@ -2,7 +2,7 @@
 title: {{ cookiecutter.project_name }}
 author:
   - name: 
-    orcid: {{ cookiecutter.orcid }}
+    orcid: {{ cookiecutter.ORCID }}
     corresponding: true
     email: {{ cookiecutter.email }}
     roles: []
