@@ -1,6 +1,6 @@
 [project]
-name = "repo_name"
-version = "0.1.1"
+name = "{{ cookiecutter.project_slug }}"
+version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -32,21 +32,20 @@ tqdm = ">=4.66.1,<4.67"
 # Literate Programming
 nbdev = "2.2.10.*"
 fastcore = "1.5.29.*"
-marimo = ">=0.4.9,<0.5"
 # Project Specific
 
 
 [tool.pixi.pypi-dependencies]
 # editable install of project itself
-repo_name = { path = ".", editable = true }
+{{ cookiecutter.project_slug }} = { path = ".", editable = true }
 # other required python packages
 
 
 [tool.pixi.tasks]
 # install the library in editable mode
-postinstall = "python -m ipykernel install --user --name repo_name-zetteldev && nbdev_install_hooks"
+postinstall = "python -m ipykernel install --user --name r{{ cookiecutter.project_slug }}-zetteldev && nbdev_install_hooks"
 # test the installation
-test_import = "python -c 'import repo_name'"
+test_import = "python -c 'import {{ cookiecutter.project_slug }}'"
 # Adding and creating experiments
 new_experiment = "bash .zetteldev/new_experiment.sh"
 # Jupyter cache shorthands
