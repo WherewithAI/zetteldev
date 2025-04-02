@@ -43,20 +43,40 @@ fastcore = "1.5.29.*"
 
 [tool.pixi.tasks]
 # install the library in editable mode
-postinstall = "python -m ipykernel install --user --name {{ cookiecutter.project_slug }}-zetteldev && nbdev_install_hooks"
+postinstall = "python -m ipykernel install --user --name homogenist-zetteldev && nbdev_install_hooks"
 # test the installation
-test_import = "python -c 'import {{ cookiecutter.project_slug }}'"
+test_import = "python -c 'import homogenist'"
 # Adding and creating experiments
-new_experiment = "bash .zetteldev/new_experiment.sh"
+# new_experiment = "bash .zetteldev/new_experiment.sh"
 # Jupyter cache shorthands
-run_experiments = "jcache project execute --executor local-parallel"
+# run_experiments = "jcache project execute --executor local-parallel"
 # NBDev shorthands
-nbsync = "nbdev_export" # export code from notebooks into the library
-nbclean = "nbdev_clean" # remove extraneous notebook metadata to reduce git conflicts
-pysync = "nbdev_update" # sync changes from library to notebooks
-docmaker = "nbdev_docs" # build docs
+nbsync = "nbdev_export"                                                                                       # export code from notebooks into the library
+nbclean = "nbdev_clean"                                                                                       # remove extraneous notebook metadata to reduce git conflicts
+pysync = "nbdev_update"                                                                                       # sync changes from library to notebooks
+docmaker = "nbdev_docs"                                                                                       # build docs
 zettelmaker = "quarto render nbs/experiments --to gfm --no-execute --output-dir ../zettels --profile zettels" # export experiments to markdown with quarto
 notebooks = "jupyter lab --ip=0.0.0.0"
+marimo = "marimo edit --watch --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo"
+lg = "lazygit"
+# 1) Create a new experiment
+# Usage: `pixi run create-experiment -- <experiment_name>`
+#        The script can prompt for additional info (spec, tasks, etc.).
+create-experiment = "python .zetteldev/create_experiment.py"
+# 2) Run all tests with coverage
+# Usage: `pixi run test`
+test = "pytest --cov=src --cov=experiments --cov-report=term-missing"
+# 3) Run a specific experiment's Snakemake pipeline
+# Usage: `pixi run run-experiment -- <experiment_name>`
+#        The script can handle the logic of cd'ing into the right folder, etc.
+run-experiment = "python .zetteldev/run_experiment.py"
+
+# Optionally, you can add a command to generate coverage reports in HTML, lint code, etc.
+# coverage-report = "pytest --cov=src --cov=experiments --cov-report=html"
+
+
+
+
 
 [tool.pixi.feature.cuda] # CUDA support; install with pixi install -e cuda
 platforms = ["win-64", "linux-64", 'osx-arm64']

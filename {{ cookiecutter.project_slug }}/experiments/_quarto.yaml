@@ -1,0 +1,1 @@
+jupyter: {{ cookiecutter.project_slug }}-zetteldev
