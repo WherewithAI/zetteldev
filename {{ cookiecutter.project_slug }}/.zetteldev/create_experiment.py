@@ -21,9 +21,9 @@ rule render_report:
         "report.qmd"
     output:
         # The rendered HTML goes into ../../reports/
-        "../../reports/{experiment_name}.html"
+        "{experiment_name}.html"
     shell:
-        "quarto render report.qmd --output ../../reports/{experiment_name}.html"
+        "quarto render report.qmd --output {experiment_name}.html"
 """
 
 MAIN_PY_TEMPLATE = """#!/usr/bin/env python3
@@ -41,12 +41,39 @@ if __name__ == "__main__":
 REPORT_QMD_TEMPLATE = """---
 title: "{experiment_name} Report"
 format:
-  html: default
+  html:
+    code-fold: true
+    code-tools: true
+    code-summary: "Show the code"
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    fig-width: 10
 ---
+
 
 # {experiment_name}
 
 This is the Quarto report for the **{experiment_name}** experiment.
+
+
+## Setup and Imports
+
+```{{python}}
+%load_ext autoreload # leave these to always run latest available modules
+%autoreload 2
+
+import sys # modify these as needed
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from pathlib import Path
+import random
+from matplotlib.lines import Line2D
+from IPython.display import display, Markdown
+```
 
 ```{{python}}
 # You can embed Python code here, referencing local data
@@ -72,7 +99,7 @@ Tasks:
 
 def scaffold_experiment(experiment_name: str):
     """Create a new experiment folder with standard files and structure.
-    
+
     Args:
         experiment_name: Name of the experiment to create
     """
