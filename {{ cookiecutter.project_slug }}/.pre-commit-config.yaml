@@ -1,0 +1,8 @@
+repos:
+    - repo: local
+      hooks:
+          - id: check-total-staged-size
+            name: Check Total Staged File Size
+            entry: .zetteldev/check-total-staged-size.sh
+            language: script
+            stages: [pre-commit]

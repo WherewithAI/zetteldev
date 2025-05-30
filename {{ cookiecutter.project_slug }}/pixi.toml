@@ -1,0 +1,115 @@
+###############################################################################
+# pixi.toml  – workspace manifest for the aiconfi project
+###############################################################################
+
+[workspace]                                # ← replaces [tool.pixi.project]
+name       = "{{ cookiecutter.project_slug }}"
+channels   = ["nvidia", "conda-forge", "fastai", "pytorch", "bioconda"]
+platforms  = ["linux-64", "osx-arm64"]
+homepage   = "https://wherewith.ai"
+
+###############################################################################
+# Conda-forge packages
+###############################################################################
+[dependencies]
+python           = ">=3.11"                     # pulled from requires-python
+
+# R package for Design Supervised Learning
+r-base        = "4.4.*"
+r-essentials  = "*"              # CRAN basics + tidyverse
+r-devtools = ">=2.4.5,<3" # Required to install DSL package from Github
+
+# --- analytics / notebooks ---------------------------------------------------
+polars           = ">=0.20,<0.21"
+numpy            = "==1.23.5"
+pandas           = ">=2.2.0,<2.3"
+scipy            = ">=1.12.0,<1.13"
+matplotlib-base  = ">=3.8.2,<3.9"
+matplotlib       = ">=3.8.2,<3.9"
+seaborn          = ">=0.13.2,<0.14"
+plotly           = ">=5.18.0,<5.19"
+ipykernel        = ">=6.28.0,<6.29"
+notebook = ">=7.4.2,<8"
+nbformat         = ">=5.9.2,<5.10"
+jupyter          = ">=1.0.0,<1.1"
+
+# --- dev-tooling & utilities --------------------------------------------------
+fastcore         = "1.5.29.*"
+fastprogress     = ">=1.0.3,<2"
+datasets         = ">=3.3.1,<4"
+scikit-learn     = ">=1.6.1,<2"
+sympy            = ">=1.12,<2"
+typer            = ">=0.9.0,<0.10"
+rich             = ">=13.7.0,<13.8"
+tqdm             = ">=4.66.1,<4.67"
+python-dotenv    = "*"
+duckdb           = ">=1.2.1,<2"
+sqlglot          = ">=26.0.1,<27"
+lazygit          = ">=0.48.0,<0.49"
+marimo           = ">=0.11.26,<0.12"
+anthropic        = ">=0.49.0,<0.50"
+questionary      = ">=2.1.0,<3"                 # available on conda-forge
+markdown-it-py   = "*"
+pip              = ">=25.0.1,<26"
+
+###############################################################################
+# PyPI packages (installed by UV after the conda solve)
+###############################################################################
+[pypi-dependencies]
+aiconfi        = { path = ".", editable = true }      # editable local install
+openreview-py  = ">=1.48.1,<2"                        # not on conda-forge
+pymupdf          = ">=1.25.5,<2"
+rpy2 = ">=3.5.17, <4"
+pyzotero = ">=1.6.11, <2"
+ppi-python = ">=0.2.3, <0.3"
+openai = "==1.81.0"
+
+###############################################################################
+# Tasks (unchanged, but now live under [tasks])
+###############################################################################
+[tasks]
+postinstall        = "python -m ipykernel install --user --name {{ cookiecutter.project_slug }}-zetteldev"
+test_import        = "python -c 'import {{ cookiecutter.project_slug }}'"
+nbsync             = "nbdev_export"
+nbclean            = "nbdev_clean"
+pysync             = "nbdev_update"
+docmaker           = "nbdev_docs"
+marimo            = "marimo edit --watch --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo"
+lg                 = "lazygit"
+create-experiment  = "python .zetteldev/create_experiment.py"
+test               = "pytest"
+run-experiment     = "python .zetteldev/run_experiment.py"
+
+[feature.dev.dependencies]
+pytest = "*"
+ruff = "*"
+mypy = "*"
+snakemake = ">=8.30.0,<9"
+
+[feature.dev.pypi-dependencies]
+aiconfi-aatest = { path = "experiments/aatest", editable = true }
+openreview-py = ">=1.49.0, <2"
+
+[environments]
+default = { features = ["dev"], solve-group = "prod" }  # full tooling
+prod    = { features = [],        solve-group = "prod" }  # slim image
+
+###############################################################################
+# Optional CUDA feature  (unchanged)
+###############################################################################
+# [feature.cuda]
+# platforms           = ["linux-64"]
+# channels            = ["nvidia", { channel = "pytorch", priority = -1 }]
+# system-requirements = { cuda = "12.1" }
+
+# [feature.cuda.target.linux-64.dependencies]
+# pytorch-cuda        = { version = "12.1.*", channel = "pytorch" }
+
+# [feature.cuda.tasks]
+# jupyter             = "jupyter notebook"
+
+###############################################################################
+# Named environments that pull features together
+###############################################################################
+# [environments]
+# cuda = ["cuda"]              #  add `pixi install -e cuda` to activate

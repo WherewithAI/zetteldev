@@ -1,0 +1,5 @@
+*.ipynb merge=nbdev-merge
+# Store all files in 'processed_data' subfolders under Git LFS
+experiments/*/processed_data/** filter=lfs diff=lfs merge=lfs -text
+# Ditto for files in the 'data' folder; this holds data which is shared between experiments.
+data/** filter=lfs diff=lfs merge=lfs -text
