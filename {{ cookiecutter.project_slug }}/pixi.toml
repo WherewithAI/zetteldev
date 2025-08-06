@@ -56,13 +56,16 @@ pip              = ">=25.0.1,<26"
 # PyPI packages (installed by UV after the conda solve)
 ###############################################################################
 [pypi-dependencies]
-aiconfi        = { path = ".", editable = true }      # editable local install
+{{ cookiecutter.project_slug }}        = { path = ".", editable = true }      # editable local install
 openreview-py  = ">=1.48.1,<2"                        # not on conda-forge
 pymupdf          = ">=1.25.5,<2"
 rpy2 = ">=3.5.17, <4"
 pyzotero = ">=1.6.11, <2"
 ppi-python = ">=0.2.3, <0.3"
 openai = "==1.81.0"
+pre-commit = ">=4.2.0, <5"
+pywaffle = ">=1.1.1, <2"
+great-tables = ">=0.17.0, <0.18"
 
 ###############################################################################
 # Tasks (unchanged, but now live under [tasks])
@@ -74,11 +77,18 @@ nbsync             = "nbdev_export"
 nbclean            = "nbdev_clean"
 pysync             = "nbdev_update"
 docmaker           = "nbdev_docs"
+zettelmaker        = "quarto render nbs/experiments --to gfm --no-execute --output-dir ../zettels --profile zettels"
+notebooks          = "jupyter lab --ip=0.0.0.0"
 marimo            = "marimo edit --watch --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo"
 lg                 = "lazygit"
 create-experiment  = "python .zetteldev/create_experiment.py"
 test               = "pytest"
 run-experiment     = "python .zetteldev/run_experiment.py"
+sync-to-cloud      = "python .zetteldev/sync_cloud_data.py sync-to-cloud"
+sync-from-cloud    = "python .zetteldev/sync_cloud_data.py sync-from-cloud"
+
+pug = "bash .zetteldev/new_git_worktree.sh"
+rug = "bash .zetteldev/review_worktree.sh"
 
 [feature.dev.dependencies]
 pytest = "*"
@@ -87,29 +97,23 @@ mypy = "*"
 snakemake = ">=8.30.0,<9"
 
 [feature.dev.pypi-dependencies]
-aiconfi-aatest = { path = "experiments/aatest", editable = true }
 openreview-py = ">=1.49.0, <2"
-
-[environments]
-default = { features = ["dev"], solve-group = "prod" }  # full tooling
-prod    = { features = [],        solve-group = "prod" }  # slim image
 
 ###############################################################################
 # Optional CUDA feature  (unchanged)
 ###############################################################################
-# [feature.cuda]
-# platforms           = ["linux-64"]
-# channels            = ["nvidia", { channel = "pytorch", priority = -1 }]
-# system-requirements = { cuda = "12.1" }
+[feature.cuda]
+platforms           = ["linux-64"]
+channels            = ["nvidia", { channel = "pytorch", priority = -1 }]
+system-requirements = { cuda = "12.1" }
 
-# [feature.cuda.target.linux-64.dependencies]
-# pytorch-cuda        = { version = "12.1.*", channel = "pytorch" }
+[feature.cuda.target.linux-64.dependencies]
+pytorch-cuda        = { version = "12.1.*", channel = "pytorch" }
 
-# [feature.cuda.tasks]
-# jupyter             = "jupyter notebook"
+[feature.cuda.tasks]
+jupyter             = "jupyter notebook"
 
-###############################################################################
-# Named environments that pull features together
-###############################################################################
-# [environments]
-# cuda = ["cuda"]              #  add `pixi install -e cuda` to activate
+[environments]
+default = { features = ["dev"], solve-group = "prod" }  # full tooling
+prod    = { features = [],        solve-group = "prod" }  # slim image
+cuda = { features = ["cuda"], solve-group = "prod" }              #  add `pixi install -e cuda` to activate

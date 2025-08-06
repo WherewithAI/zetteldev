@@ -205,12 +205,6 @@ def scaffold_experiment(exp: str) -> None:
     # Create a simple design.md that points to the org file for non-org users
     (folder / "design.md").write_text(f"# {exp} Design\n\nSee design.org for full details.\n")
 
-    # Create the package __init__.py file
-    (folder / "__init__.py").write_text(INIT_PY_TEMPLATE.format(exp=exp))
-
-    # Create a minimal pyproject.toml for pip installability
-    (folder / "pyproject.toml").write_text(PYPROJECT_TOML_TEMPLATE.format(exp=exp, exp_underscore=exp_underscore))
-
     (folder / "main.py").write_text(MAIN_PY_TEMPLATE.format(exp=exp))
     (folder / "report.qmd").write_text(REPORT_QMD_TEMPLATE.format(exp=exp, url=url))
     (folder / "Snakefile").write_text(SNAKEMAKE_TEMPLATE.format(exp=exp, token=token))

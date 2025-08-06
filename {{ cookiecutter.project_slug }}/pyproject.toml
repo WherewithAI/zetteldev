@@ -2,7 +2,7 @@
 name = "{{ cookiecutter.project_slug }}"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["questionary>=2.1.0,<3", "openreview-py>=1.48.1,<2", "pymupdf>=1.25.5,<2",  "markdown-it-py"]
 
 
 [build-system]
