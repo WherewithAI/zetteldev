@@ -4,9 +4,10 @@ This is an academic repository using the Zetteldev framework, whose tagline is "
 1. Most work happens within `experiment` subfolders, which have a structure described below. Think of an experiment as the code/computation/data that produces one set of related figures for a paper.
 2. Everything performed in an experiment is specified by a `design.org` file in the experiment root: a design specification which describes exactly how the experiment should be run in precise language.
 
-As a coding agent, you will usually be asked to perform some task in an experiment folder. BEFORE DOING ANYTHING ELSE, read the `design.md` file to understand what the experiment should do. You may be asked to implement this design from scratch, or to update the existing code to match the design. You'll note that parts of the design.org are marked as [TODO] or [STRT] (in progress); work on these.
+As a coding agent, you will usually be asked to perform some task in an experiment folder. BEFORE DOING ANYTHING ELSE, read the `design.md` file to understand what the experiment should do. You may be asked to implement this design from scratch, or to update the existing code to match the design.
 
-After implementing a part of the design spec, change the status of the corresponding section and add a _minimal_ description of how it was done, with a reference to the relevant file(s).
+design.md might mirror a github issue. If so, then use the `gh` command to comment on the issue with minimal descriptions of completed implementations.
+
 
 If you notice discrepancies between the existing code and the design spec, please bring this to my attention.
 
@@ -103,3 +104,16 @@ Always write and perform two types of tests.
 - **Type Annotations**: Use typing for function parameters and returns
 - **Documentation**: Google-style docstrings with params and returns
 - **Error Handling**: Specific exceptions with proper logging
+
+## GitHub Issue Integration
+
+After completing a task, always stage the relevant files and commit them to git with a short, descriptive commit name.
+
+If the experiment is associated with a GitHub issue (check for `#+GITHUB_ISSUE:` in design.org or `**GitHub Issue:**` in design.md):
+- When making changes that ARE described in the design.md: Comment on the issue with minimal descriptions of completed implementations
+- When making changes that are NOT described in the design.md: Leave a comment explaining what was changed and why (e.g., bug fixes, optimizations, additional features discovered during implementation)
+
+Use the `gh` command to interact with issues, for example:
+```bash
+gh issue comment <issue_number> -b "Implemented the data preprocessing pipeline as specified in the design doc."
+```

@@ -2,13 +2,24 @@
 """
 Scaffold a Zetteldev experiment folder with:
   • 16‑char secret token in .zetteldev
-  • report.qmd featuring a “Copy URL” button
+  • report.qmd featuring a "Copy URL" button
   • Snakefile renders <experiment>-<TOKEN>.html
   • scratchpad.ipynb Jupyter notebook pre‑wired for live exploration
+  • Optional: Pre-fill design.md from GitHub issue
+
+Usage:
+  python create_experiment.py             # Interactive mode
+  python create_experiment.py <issue_num> # Create from specific issue
+  python create_experiment.py <exp_name>  # Create with specific name
+
 Reads [tool.zetteldev] base_url from pyproject.toml.
 """
 import json, secrets, string, sys
+import re
+import subprocess
+import argparse
 from pathlib import Path
+from typing import Optional, Dict, List
 
 try:
     import tomllib            # Python ≥3.11
@@ -33,6 +44,148 @@ def get_base_url() -> str:
         return data["tool"]["zetteldev"]["base_url"].rstrip("/")
     except Exception:
         return "http://localhost:8000"
+
+def get_github_repo() -> Optional[str]:
+    """Extract GitHub repository from git remote origin."""
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, check=True
+        )
+        url = result.stdout.strip()
+        # Extract owner/repo from various URL formats
+        if "github.com" in url:
+            if url.startswith("git@"):
+                # SSH format: git@github.com:owner/repo.git
+                match = re.search(r"github\.com:([^/]+/[^.]+)", url)
+            else:
+                # HTTPS format: https://github.com/owner/repo.git
+                match = re.search(r"github\.com/([^/]+/[^.]+)", url)
+            if match:
+                repo = match.group(1)
+                return repo.replace(".git", "")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return None
+
+def fetch_github_issues() -> List[Dict]:
+    """Fetch open issues from the current GitHub repository."""
+    repo = get_github_repo()
+    if not repo:
+        return []
+    
+    try:
+        # Use gh CLI to fetch issues
+        result = subprocess.run(
+            ["gh", "issue", "list", "--repo", repo, "--state", "open", "--json", "number,title,body", "--limit", "100"],
+            capture_output=True, text=True, check=True
+        )
+        issues = json.loads(result.stdout)
+        return issues
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        print("⚠️  Could not fetch GitHub issues. Make sure 'gh' CLI is installed and authenticated.")
+        return []
+
+def get_existing_experiment_numbers() -> set:
+    """Get issue numbers from existing experiment folders."""
+    base = Path("experiments")
+    if not base.exists():
+        return set()
+    
+    numbers = set()
+    for folder in base.iterdir():
+        if folder.is_dir():
+            # Check if folder name matches pattern: number-name
+            match = re.match(r"^(\d+)-", folder.name)
+            if match:
+                numbers.add(int(match.group(1)))
+    return numbers
+
+def slugify_title(title: str, max_length: int = 50) -> str:
+    """Convert issue title to a valid folder name."""
+    # Remove special characters and convert to lowercase
+    slug = re.sub(r"[^\w\s-]", "", title.lower())
+    # Replace spaces with hyphens
+    slug = re.sub(r"[\s_]+", "-", slug)
+    # Remove leading/trailing hyphens
+    slug = slug.strip("-")
+    # Truncate if too long
+    if len(slug) > max_length:
+        slug = slug[:max_length].rstrip("-")
+    return slug
+
+def get_issue_by_number(issue_num: int) -> Optional[Dict]:
+    """Get a specific issue by its number."""
+    issues = fetch_github_issues()
+    for issue in issues:
+        if issue["number"] == issue_num:
+            return issue
+    return None
+
+def list_available_issues() -> None:
+    """List all available GitHub issues that don't have experiments yet."""
+    issues = fetch_github_issues()
+    if not issues:
+        print("⚠️  No GitHub issues found or unable to fetch issues.")
+        return
+    
+    existing_numbers = get_existing_experiment_numbers()
+    available_issues = [i for i in issues if i["number"] not in existing_numbers]
+    
+    if not available_issues:
+        print("ℹ️  All open issues already have corresponding experiments.")
+        return
+    
+    print("📋 Available GitHub issues for new experiments:\n")
+    for issue in available_issues:
+        exp_name = f"{issue['number']}-{slugify_title(issue['title'])}"
+        print(f"  #{issue['number']:3d}: {issue['title'][:60]}")
+        print(f"       → pixi run create-experiment {issue['number']}")
+        print()
+    
+    print("\n💡 To create an experiment from an issue, run:")
+    print("   pixi run create-experiment <issue_number>")
+    print("\n   Or run without arguments for interactive selection.")
+
+def select_github_issue() -> Optional[Dict]:
+    """Present a selector for available GitHub issues."""
+    # Check if we're in an interactive terminal
+    if not sys.stdin.isatty():
+        return None
+        
+    issues = fetch_github_issues()
+    if not issues:
+        return None
+    
+    existing_numbers = get_existing_experiment_numbers()
+    # Filter out issues that already have experiments
+    available_issues = [i for i in issues if i["number"] not in existing_numbers]
+    
+    if not available_issues:
+        print("ℹ️  All open issues already have corresponding experiments.")
+        return None
+    
+    # Use simple numbered list instead of questionary to avoid compatibility issues
+    print("\n📋 Select a GitHub issue to base the experiment on:\n")
+    for idx, issue in enumerate(available_issues, 1):
+        print(f"  {idx}. #{issue['number']}: {issue['title'][:60]}")
+    print(f"  {len(available_issues) + 1}. [Skip - create experiment without issue]")
+    
+    try:
+        choice = input("\nEnter selection number (or press Enter to skip): ").strip()
+        if not choice:
+            return None
+        
+        choice_num = int(choice)
+        if choice_num == len(available_issues) + 1:
+            return None
+        elif 1 <= choice_num <= len(available_issues):
+            return available_issues[choice_num - 1]
+        else:
+            print("⚠️  Invalid selection.")
+            return None
+    except (ValueError, KeyboardInterrupt, EOFError):
+        return None
 
 # ---------------------------------------------------------------------------- #
 # templates – double braces → single brace in output
@@ -111,6 +264,41 @@ Outline the first step in the experimental process.
 Created experiment scaffolding.
 """
 
+DESIGN_ORG_FROM_ISSUE_TEMPLATE = """\
+#+TITLE: {exp} Design
+#+GITHUB_ISSUE: #{issue_number}
+
+* Issue: {issue_title}
+
+{issue_body}
+
+* Implementation Plan
+[TODO] Add implementation details here.
+
+* Changelog
+** [YYYY-MM-DD] Initial version
+Created experiment scaffolding from GitHub issue #{issue_number}.
+"""
+
+DESIGN_MD_FROM_ISSUE_TEMPLATE = """\
+# {exp} Design
+
+**GitHub Issue:** #{issue_number}
+
+## Issue: {issue_title}
+
+{issue_body}
+
+## Implementation Plan
+
+[TODO] Add implementation details here.
+
+## Changelog
+
+### [{date}] Initial version
+Created experiment scaffolding from GitHub issue #{issue_number}.
+"""
+
 
 
 MAIN_PY_TEMPLATE     = """\"\"\"
@@ -174,7 +362,7 @@ def create_scratchpad(exp: str, exp_underscore: str, path: Path) -> None:
 
 # ---------------------------------------------------------------------------- #
 
-def scaffold_experiment(exp: str) -> None:
+def scaffold_experiment(exp: str, issue: Optional[Dict] = None) -> None:
     base = Path("experiments")
     folder = base / exp
     if folder.exists():
@@ -198,12 +386,29 @@ def scaffold_experiment(exp: str) -> None:
     from datetime import date
     today = date.today().strftime("%Y-%m-%d")
 
-    # Replace the placeholder with today's date
-    design_content = DESIGN_ORG_TEMPLATE.format(exp=exp).replace("[YYYY-MM-DD]", today)
-    (folder / "design.org").write_text(design_content)
-
-    # Create a simple design.md that points to the org file for non-org users
-    (folder / "design.md").write_text(f"# {exp} Design\n\nSee design.org for full details.\n")
+    if issue:
+        # Create design files from GitHub issue
+        design_org_content = DESIGN_ORG_FROM_ISSUE_TEMPLATE.format(
+            exp=exp,
+            issue_number=issue["number"],
+            issue_title=issue["title"],
+            issue_body=issue.get("body", "No description provided.")
+        ).replace("[YYYY-MM-DD]", today)
+        (folder / "design.org").write_text(design_org_content)
+        
+        design_md_content = DESIGN_MD_FROM_ISSUE_TEMPLATE.format(
+            exp=exp,
+            issue_number=issue["number"],
+            issue_title=issue["title"],
+            issue_body=issue.get("body", "No description provided."),
+            date=today
+        )
+        (folder / "design.md").write_text(design_md_content)
+    else:
+        # Use default templates
+        design_content = DESIGN_ORG_TEMPLATE.format(exp=exp).replace("[YYYY-MM-DD]", today)
+        (folder / "design.org").write_text(design_content)
+        (folder / "design.md").write_text(f"# {exp} Design\n\nSee design.org for full details.\n")
 
     (folder / "main.py").write_text(MAIN_PY_TEMPLATE.format(exp=exp))
     (folder / "report.qmd").write_text(REPORT_QMD_TEMPLATE.format(exp=exp, url=url))
@@ -218,7 +423,54 @@ def scaffold_experiment(exp: str) -> None:
 
 # ---------------------------------------------------------------------------- #
 if __name__ == "__main__":
-    name = questionary.text("New experiment name:").ask()
-    if not name:
-        sys.exit("No name provided.")
-    scaffold_experiment(name)
+    # Check for command-line arguments
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        
+        # Check if it's a number (issue number)
+        try:
+            issue_num = int(arg)
+            issue = get_issue_by_number(issue_num)
+            
+            if not issue:
+                sys.exit(f"⚠️  Issue #{issue_num} not found or not accessible.")
+            
+            # Check if experiment already exists
+            existing_numbers = get_existing_experiment_numbers()
+            if issue_num in existing_numbers:
+                sys.exit(f"⚠️  An experiment for issue #{issue_num} already exists.")
+            
+            name = f"{issue['number']}-{slugify_title(issue['title'])}"
+            print(f"📋 Creating experiment '{name}' from issue #{issue['number']}")
+            scaffold_experiment(name, issue)
+            
+        except ValueError:
+            # It's not a number, treat it as an experiment name
+            name = arg
+            print(f"📋 Creating experiment '{name}'")
+            scaffold_experiment(name, None)
+    else:
+        # No arguments - interactive mode or list issues
+        if not sys.stdin.isatty():
+            # Non-interactive terminal - list available issues
+            list_available_issues()
+        else:
+            # Interactive mode - try to select a GitHub issue first
+            issue = select_github_issue()
+            
+            if issue:
+                # Generate experiment name from issue
+                name = f"{issue['number']}-{slugify_title(issue['title'])}"
+                print(f"\n📋 Creating experiment '{name}' from issue #{issue['number']}")
+            else:
+                # Fall back to manual name entry
+                try:
+                    name = questionary.text("New experiment name:").ask()
+                    if not name:
+                        sys.exit("No name provided.")
+                except (KeyboardInterrupt, EOFError):
+                    sys.exit("\n⚠️  Cancelled.")
+                except Exception as e:
+                    sys.exit(f"⚠️  Error getting experiment name: {e}")
+            
+            scaffold_experiment(name, issue)
