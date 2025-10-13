@@ -88,11 +88,17 @@ ENV PATH=/home/dev/.local/bin:${PATH} \
     HF_HOME=/caches/huggingface
 
 COPY ops/devcontainer/config/fixuid.yml /etc/fixuid/config.yml
+COPY ops/devcontainer/config/profile.d/zdev-history.sh /etc/profile.d/zdev-history.sh
 COPY ops/devcontainer/scripts/fixuid-entrypoint.sh /usr/local/bin/fixuid-entrypoint
 COPY ops/devcontainer/scripts/zdev /usr/local/bin/zdev
 COPY ops/devcontainer/docs /opt/zetteldev/docs
 
-RUN chmod +x /usr/local/bin/fixuid-entrypoint /usr/local/bin/zdev && \
+RUN mkdir -p /commandhistory && \
+    touch /commandhistory/.bash_history && \
+    chown dev:dev /commandhistory /commandhistory/.bash_history && \
+    chmod 755 /commandhistory && \
+    chmod 644 /etc/profile.d/zdev-history.sh && \
+    chmod +x /usr/local/bin/fixuid-entrypoint /usr/local/bin/zdev && \
     chown -R dev:dev /opt/zetteldev
 
 WORKDIR /workspaces

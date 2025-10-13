@@ -3,12 +3,12 @@ name: zdev images
 on:
   push:
     branches: [main]
+    paths:
+      - "ops/devcontainer/**"
+      - ".github/workflows/devcontainer-release.yml"
   release:
     types: [published]
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "ops/devcontainer/**"
 
 jobs:
   pr-smoke:
@@ -18,9 +18,9 @@ jobs:
       matrix:
         include:
           - name: cpu
-            dockerfile: ops/devcontainer/Dockerfile.cpu
+            dockerfile: Dockerfile.cpu
           - name: cuda-12.4
-            dockerfile: ops/devcontainer/Dockerfile.cuda-12.4
+            dockerfile: Dockerfile.cuda-12.4
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -28,10 +28,11 @@ jobs:
       - name: Build (no push)
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
+          context: ops/devcontainer
+          file: ops/devcontainer/${{ matrix.dockerfile }}
           push: false
           provenance: false
+          sbom: false
           tags: tmp/zdev:${{ matrix.name }}
 
   release:
@@ -41,11 +42,11 @@ jobs:
       matrix:
         include:
           - name: cpu
-            dockerfile: ops/devcontainer/Dockerfile.cpu
+            dockerfile: Dockerfile.cpu
             latest: cpu
             release: cpu
           - name: cuda-12.4
-            dockerfile: ops/devcontainer/Dockerfile.cuda-12.4
+            dockerfile: Dockerfile.cuda-12.4
             latest: cuda
             release: cuda-12.4
     permissions:
@@ -69,8 +70,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
+          context: ops/devcontainer
+          file: ops/devcontainer/${{ matrix.dockerfile }}
           push: true
           provenance: true
           sbom: true

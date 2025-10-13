@@ -3,3 +3,4 @@ group: dev
 paths:
   - /workspaces
   - /caches
+  - /commandhistory
