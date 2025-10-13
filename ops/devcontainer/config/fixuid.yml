@@ -1,0 +1,5 @@
+user: dev
+group: dev
+paths:
+  - /workspaces
+  - /caches

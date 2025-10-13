@@ -1,0 +1,45 @@
+{
+  "name": "WherewithAI Zetteldev",
+  "image": "ghcr.io/wherewithai/zdev:cuda-12.4",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "mounts": [
+    "source=pixi_pkgs_cache,target=/caches/pixi,type=volume",
+    "source=pip_cache,target=/caches/pip,type=volume",
+    "source=uv_cache,target=/caches/uv,type=volume",
+    "source=jupyter_cache,target=/caches/jupyter_cache,type=volume",
+    "source=zdev_egress_logs,target=/var/log/zdev/egress,type=volume",
+    "source=${localEnv:HOME}/.cache/huggingface,target=/caches/huggingface,type=bind,consistency=cached"
+  ],
+  "containerEnv": {
+    "PIXI_CACHE_DIR": "/caches/pixi",
+    "UV_CACHE_DIR": "/caches/uv",
+    "PIP_CACHE_DIR": "/caches/pip",
+    "JUPYTERCACHE": "/caches/jupyter_cache",
+    "HF_HOME": "/caches/huggingface"
+  },
+  "postCreateCommand": "pixi install",
+  "postStartCommand": "zdev docs update",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "charliermarsh.ruff",
+        "ms-python.black-formatter",
+        "ms-pyright.pyright",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/workspaces/${localWorkspaceFolderBasename}/.pixi/envs/default/bin/python"
+      }
+    }
+  },
+  "remoteUser": "dev",
+  "hostRequirements": {
+    "gpu": "optional"
+  },
+  "overrideCommand": false
+}

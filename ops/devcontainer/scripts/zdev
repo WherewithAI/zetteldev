@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ZDEV_STATE_DIR="${HOME}/.config/zdev"
+mkdir -p "${ZDEV_STATE_DIR}"
+
+ZDEV_NET_STATE_FILE="${ZDEV_STATE_DIR}/net-state"
+ZDEV_PROXY_URL="${ZDEV_PROXY_URL:-http://127.0.0.1:39080}"
+
+ZDEV_NPM_PREFIX="${HOME}/.local/zdev/npm"
+mkdir -p "${ZDEV_NPM_PREFIX}/bin"
+case ":${PATH}:" in
+    *":${ZDEV_NPM_PREFIX}/bin:"*) ;;
+    *) export PATH="${ZDEV_NPM_PREFIX}/bin:${PATH}" ;;
+esac
+
+ZDEV_DOC_ROOT="/opt/zetteldev/docs"
+ZDEV_DOC_VERSION="$(cat "${ZDEV_DOC_ROOT}/VERSION" 2>/dev/null || echo "unknown")"
+
+trim() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+load_env_file() {
+    local file="$1"
+    [ -f "${file}" ] || return 0
+    while IFS= read -r line || [ -n "${line}" ]; do
+        line="${line%%$'\r'}"
+        line="$(trim "${line}")"
+        case "${line}" in
+            ''|'#'*) continue ;;
+        esac
+        if [[ "${line}" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+            local key="${BASH_REMATCH[1]}"
+            local value="${BASH_REMATCH[2]}"
+            value="$(trim "${value}")"
+            case "${value}" in
+                \"*\") value="${value:1:${#value}-2}" ;;
+                \'*\') value="${value:1:${#value}-2}" ;;
+            esac
+            if [ -z "${!key+x}" ]; then
+                export "${key}=${value}"
+            fi
+        fi
+    done < "${file}"
+}
+
+detect_workspace() {
+    if [ -n "${ZDEV_WORKSPACE:-}" ]; then
+        printf '%s\n' "${ZDEV_WORKSPACE}"
+        return 0
+    fi
+    if git rev-parse --show-toplevel >/dev/null 2>&1; then
+        git rev-parse --show-toplevel
+        return 0
+    fi
+    if [ -n "${WORKSPACE_DIR:-}" ]; then
+        printf '%s\n' "${WORKSPACE_DIR}"
+        return 0
+    fi
+    pwd -P
+}
+
+WORKSPACE_DIR="$(detect_workspace)"
+
+load_dotenv_chain() {
+    load_env_file "${WORKSPACE_DIR}/.env.local"
+    load_env_file "${ZDEV_STATE_DIR}/.env.local"
+}
+
+apply_proxy_state() {
+    local state="off"
+    if [ -f "${ZDEV_NET_STATE_FILE}" ]; then
+        read -r state < "${ZDEV_NET_STATE_FILE}" || state="off"
+    fi
+    if [ "${state}" = "on" ]; then
+        export HTTP_PROXY="${ZDEV_PROXY_URL}"
+        export HTTPS_PROXY="${ZDEV_PROXY_URL}"
+        export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}"
+    else
+        unset HTTP_PROXY HTTPS_PROXY
+        export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}"
+    fi
+}
+
+ensure_cache_envs() {
+    export PIXI_CACHE_DIR="${PIXI_CACHE_DIR:-/caches/pixi}"
+    export UV_CACHE_DIR="${UV_CACHE_DIR:-/caches/uv}"
+    export PIP_CACHE_DIR="${PIP_CACHE_DIR:-/caches/pip}"
+    export JUPYTERCACHE="${JUPYTERCACHE:-/caches/jupyter_cache}"
+    export HF_HOME="${HF_HOME:-/caches/huggingface}"
+}
+
+usage() {
+    cat <<'EOF'
+Usage: zdev <command> [options]
+
+Commands
+  shell                 Start an interactive bash shell in the workspace.
+  jupyter [args...]     Launch Jupyter Lab via pixi (127.0.0.1 bind).
+  net log-on|log-off    Enable or disable network egress logging proxy.
+  net prune             Remove aged proxy logs (>30 days).
+  agents update         Update claude-code and openai CLIs in user shim.
+  docs update           Refresh local CLAUDE.md / AGENTS.md copies.
+  auth clear            Spawn subshell with common API keys unset.
+  doctor                Run environment diagnostics.
+  --version             Print image tag and baked git SHA.
+  -h, --help            Show this message.
+EOF
+}
+
+cmd_shell() {
+    cd "${WORKSPACE_DIR}"
+    exec bash --login
+}
+
+cmd_jupyter() {
+    cd "${WORKSPACE_DIR}"
+    pixi run jupyter lab --no-browser --ServerApp.ip=127.0.0.1 "$@"
+}
+
+set_proxy_state() {
+    local state="$1"
+    printf '%s\n' "${state}" > "${ZDEV_NET_STATE_FILE}"
+    apply_proxy_state
+}
+
+cmd_net() {
+    local action="${1:-}"
+    case "${action}" in
+        log-on)
+            set_proxy_state "on"
+            echo "Egress logging proxy enabled (${HTTP_PROXY})."
+            ;;
+        log-off)
+            set_proxy_state "off"
+            echo "Egress logging proxy disabled."
+            ;;
+        prune)
+            if [ -d "/var/log/zdev/egress" ]; then
+                find /var/log/zdev/egress -type f -mtime +30 -print -delete || true
+            else
+                echo "No egress log directory present."
+            fi
+            ;;
+        *)
+            echo "Usage: zdev net {log-on|log-off|prune}" >&2
+            exit 2
+            ;;
+    esac
+}
+
+cmd_agents_update() {
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "npm is not available in this image." >&2
+        exit 1
+    fi
+    npm install -g --prefix "${ZDEV_NPM_PREFIX}" claude-code openai
+    echo "Agent CLIs updated in ${ZDEV_NPM_PREFIX}."
+}
+
+copy_doc() {
+    local src="$1"
+    local dest="$2"
+    mkdir -p "$(dirname "${dest}")"
+    if [ ! -f "${src}" ]; then
+        echo "Canonical doc missing: ${src}" >&2
+        return 1
+    fi
+    cp "${src}" "${dest}"
+}
+
+cmd_docs_update() {
+    copy_doc "${ZDEV_DOC_ROOT}/CLAUDE.md" "${HOME}/.claude/CLAUDE.md"
+    printf '%s\n' "${ZDEV_DOC_VERSION}" > "${HOME}/.claude/.version"
+    copy_doc "${ZDEV_DOC_ROOT}/AGENTS.md" "${HOME}/AGENTS.md"
+    printf '%s\n' "${ZDEV_DOC_VERSION}" > "${HOME}/.agents_version"
+    echo "Docs updated to version ${ZDEV_DOC_VERSION}."
+}
+
+cmd_auth_clear() {
+    exec env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY -u GH_TOKEN bash --login
+}
+
+check_dir_writable() {
+    local label="$1"
+    local path="$2"
+    if [ -d "${path}" ] && [ -w "${path}" ]; then
+        printf '  %s: %s (writable)\n' "${label}" "${path}"
+    else
+        printf '  %s: %s (check mount permissions)\n' "${label}" "${path}"
+    fi
+}
+
+cmd_doctor() {
+    echo "zdev doctor"
+    echo "  Workspace: ${WORKSPACE_DIR}"
+    if [ "$(id -un)" = "dev" ]; then
+        echo "  User: dev (expected)"
+    else
+        echo "  User: $(id -un) (unexpected; fixuid may not have run)"
+    fi
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        if nvidia-smi -L >/dev/null 2>&1; then
+            echo "  GPU: detected ($(nvidia-smi -L | paste -sd '; ' -))"
+        else
+            echo "  GPU: nvidia-smi present but no devices visible"
+        fi
+    else
+        echo "  GPU: not detected (cpu image?)"
+    fi
+    check_dir_writable "PIXI_CACHE_DIR" "${PIXI_CACHE_DIR}"
+    check_dir_writable "UV_CACHE_DIR" "${UV_CACHE_DIR}"
+    check_dir_writable "PIP_CACHE_DIR" "${PIP_CACHE_DIR}"
+    check_dir_writable "JUPYTERCACHE" "${JUPYTERCACHE}"
+    check_dir_writable "HF_HOME" "${HF_HOME}"
+    if [ -f "${ZDEV_NET_STATE_FILE}" ] && grep -qx "on" "${ZDEV_NET_STATE_FILE}"; then
+        echo "  Proxy: enabled (${HTTP_PROXY})"
+    else
+        echo "  Proxy: disabled"
+    fi
+    if command -v pixi >/dev/null 2>&1; then
+        echo "  Pixi: $(pixi --version 2>/dev/null | head -n1)"
+    else
+        echo "  Pixi: not installed"
+    fi
+}
+
+cmd_version() {
+    local image="${ZDEV_IMAGE_TAG:-unknown}"
+    local sha="${ZDEV_GIT_SHA:-unknown}"
+    local zver="${ZDEV_DOC_VERSION}"
+    echo "zdev ${zver} (image: ${image}, git: ${sha})"
+}
+
+main() {
+    if [ $# -eq 0 ]; then
+        set -- shell
+    fi
+    case "$1" in
+        -h|--help)
+            usage
+            return 0
+            ;;
+    esac
+
+    load_dotenv_chain
+    ensure_cache_envs
+    apply_proxy_state
+
+    case "$1" in
+        shell)
+            shift
+            cmd_shell "$@"
+            ;;
+        jupyter)
+            shift
+            cmd_jupyter "$@"
+            ;;
+        net)
+            shift
+            cmd_net "$@"
+            ;;
+        agents)
+            shift
+            case "$1" in
+                update) shift; cmd_agents_update "$@" ;;
+                *) echo "Usage: zdev agents update" >&2; exit 2 ;;
+            esac
+            ;;
+        docs)
+            shift
+            case "$1" in
+                update) shift; cmd_docs_update "$@" ;;
+                *) echo "Usage: zdev docs update" >&2; exit 2 ;;
+            esac
+            ;;
+        auth)
+            shift
+            case "$1" in
+                clear) shift; cmd_auth_clear "$@" ;;
+                *) echo "Usage: zdev auth clear" >&2; exit 2 ;;
+            esac
+            ;;
+        doctor)
+            shift
+            cmd_doctor "$@"
+            ;;
+        --version)
+            shift
+            cmd_version "$@"
+            ;;
+        *)
+            echo "Unknown command: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"

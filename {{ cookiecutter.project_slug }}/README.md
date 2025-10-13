@@ -1,24 +1,50 @@
 # Development
 
-## Quickstart
+## Dev Container Quickstart
 
-First, install git-lfs to your system (e.g. with `brew install git-lfs`). Then clone the repo. 
+1. Install the VS Code **Dev Containers** extension and ensure Docker Desktop (or the Docker Engine) is running.
+2. Clone the repository, open it in VS Code, and run `Dev Containers: Reopen in Container`.
+3. The repo mounts at `/workspaces/{{ cookiecutter.project_slug }}` inside the container. Shared caches live under `/caches/*`.
+4. After the container starts, run `zdev docs update` to sync organisation agent guidance files.
+5. Run `pixi install` (the `postCreateCommand` does this automatically) and then `pixi run postinstall`.
+
+### GPU Hosts
+
+The default image is `ghcr.io/wherewithai/zdev:cuda-12.4`. If your machine has a CUDA-capable GPU, enable it by creating `.devcontainer/devcontainer.local.json` with:
+
+```json
+{
+  "runArgs": ["--gpus", "all"]
+}
+```
+
+For CPU-only machines, you can switch to the CPU image:
+
+```json
+{
+  "image": "ghcr.io/wherewithai/zdev:cpu"
+}
+```
+
+### Local (No Container) Setup
+
+If you prefer running directly on the host, install git-lfs (e.g. `brew install git-lfs`), install [Pixi](https://pixi.sh) (`brew install pixi` or the script below), then follow the package management section.
 
 ## Package Management
 
-We use pixi, a modern Poetry-like package manager that supports declarative installation of conda *and* pip packages. There may be no 'one true' python package manager, but Pixi is the 'one true' python package manager. Behold it and weep! (As, on hearing the Good News, did one past labmate, who had previously spent up to one day a week wrestling with conda/pip incompatabilities and breaking CUDA environments.)
+We use Pixi, a modern Poetry-like package manager that supports declarative installation of conda *and* pip packages. There may be no 'one true' Python package manager, but Pixi is the 'one true' Python package manager. Behold it and weep! (As, on hearing the Good News, did one past labmate, who had previously spent up to one day a week wrestling with conda/pip incompatibilities and breaking CUDA environments.)
 
-First install [Pixi](https://pixi.sh) with `brew install pixi`, or
+First install Pixi with `brew install pixi`, or
 
 ```sh
 curl -fsSL https://pixi.sh/install.sh | bash
 ```
 
-Then clone the repo, and create the project environment by running
+Then clone the repo and create the project environment by running
 
 ```sh
 pixi install # downloads all python packages
-pixi run postinstall # installs the '{{ cookiecutter.project_slug }} ' package and creates a jupyter kernel
+pixi run postinstall # installs the '{{ cookiecutter.project_slug }}' package and creates a jupyter kernel
 ```
 
 To add packages,
@@ -38,14 +64,35 @@ pixi run snakemake rule_name # to run with the DAG powerful *snakemake* -- see b
 
 Indeed, you can define custom pixi commands for a project in `pyproject.toml`, as we've done, e.g. with `pixi run test` (run pytest).
 
-To use jupyter notebooks with the pixi kernel, either select the `{{ cookiecutter.project_slug }} -zetteldev` kernel we created with postinstall -- or just launch a new jupyter session with `pixi run notebooks`.
+To use Jupyter notebooks with the Pixi kernel, either select the `{{ cookiecutter.project_slug }}-zetteldev` kernel we created with postinstall—or just launch a new Jupyter session with `pixi run notebooks`.
+
+## zdev Helper
+
+Inside the container, the `zdev` helper manages the runtime environment:
+
+- `zdev shell` — start an interactive shell with caches and dotenvs loaded.
+- `zdev jupyter` — launch Jupyter Lab bound to `127.0.0.1`.
+- `zdev net log-on|log-off` — toggle the optional egress logging proxy.
+- `zdev agents update` — update the `claude-code` and `openai` CLIs into `~/.local/zdev/npm`.
+- `zdev docs update` — refresh `~/.claude/CLAUDE.md` and `~/AGENTS.md`.
+- `zdev doctor` — check cache mounts, GPU visibility, and proxy state.
+
+Before handing the session back (especially after using credentials) run `zdev auth clear` to open a shell with sensitive variables removed.
+
+## Dotenv & Secrets
+
+- Project-specific secrets: `./.env.local` (git ignored).
+- Machine-wide overrides: `~/.config/zdev/.env.local`.
+- Runtime environment variables always win over dotenv files.
+
+Common keys include `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, and overrides for cache locations. Never commit these files.
 
 ## Library code vs Experiment code
 
 As academics, we understand this: the library is one place; the lab is another. Sadly, default Python projects don't understand this, and have several times made quite a mess by bringing hydrochloric acid and liquid nitrogen into Firestone. Good thing *this* project respects that division. 
 
 1. The '/experiments' folder holds all of the code/data/analyses involved in experiments: data wrangling logic, model training scripts, metric computations, and Quarto reports and jupyter notebooks detailing the results. It gets better. Who says one repository can hold only one experiment? We divide the analyses into distinct experiment subfolders, ala '/experiments/homogenization-metrics-sanity-check'. This allows multiple people to work on different experiments independently without fearing merge conflicts. Think of an experiment as the code/computation/data that produces one set of related figures for a paper.
-2. The '/{{ cookiecutter.project_slug }} ' folder holds the python library, which can by imported in any experiment with 'import {{ cookiecutter.project_slug }} '.  This houses the logic shared between experiments.
+2. The '/{{ cookiecutter.project_slug }}' folder holds the Python library, which can by imported in any experiment with `import {{ cookiecutter.project_slug }}`. This houses the logic shared between experiments.
 
 Thus, the repo is structured like this:
 
@@ -134,4 +181,3 @@ You can set up a Zetteldev repo for yourself with [Cookiecutter](https://github.
 ```
 cookiecutter gh:WherewithAI/zetteldev
 ```
-
