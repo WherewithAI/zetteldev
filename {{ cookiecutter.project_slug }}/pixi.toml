@@ -88,6 +88,13 @@ run-experiment     = "python .zetteldev/run_experiment.py"
 sync-to-cloud      = "python .zetteldev/sync_cloud_data.py sync-to-cloud"
 sync-from-cloud    = "python .zetteldev/sync_cloud_data.py sync-from-cloud"
 
+zdev-update        = "bash .zetteldev/update_zetteldev_assets.sh"
+zdev-shell         = "bash .zetteldev/zdev-container.sh shell"
+zdev-claude        = "bash .zetteldev/zdev-container.sh claude"
+zdev-codex         = "bash .zetteldev/zdev-container.sh codex"
+zdev-stop-shell    = "bash .zetteldev/zdev-container.sh stop shell"
+zdev-rm-shell      = "bash .zetteldev/zdev-container.sh rm shell"
+
 pug = "bash .zetteldev/new_git_worktree.sh"
 rug = "bash .zetteldev/review_worktree.sh"
 

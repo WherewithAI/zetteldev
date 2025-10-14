@@ -8,6 +8,16 @@
 4. After the container starts, run `zdev docs update` to sync organisation agent guidance files.
 5. Run `pixi install` (the `postCreateCommand` does this automatically) and then `pixi run postinstall`.
 
+### Keeping Zetteldev Assets Fresh
+
+Whenever you want the latest `.zetteldev` tools and shared docs (`CLAUDE.md`, `AGENTS.md`, `infra.md`, `gambols.md`, `experiments.md`), run:
+
+```sh
+.zetteldev/update_zetteldev_assets.sh
+```
+
+Use `--ref <branch-or-tag>` or `--repo <url>` to pull from a different upstream, and add `--clean` to remove local files that no longer exist upstream.
+
 ### GPU Hosts
 
 The default image is `ghcr.io/wherewithai/zdev:cuda-12.4`. If your machine has a CUDA-capable GPU, enable it by creating `.devcontainer/devcontainer.local.json` with:

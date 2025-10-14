@@ -28,3 +28,5 @@ This project uses pixi, a poetry-like package manager. Available packages can be
 - **Documentation**: Google-style docstrings with params and returns
 - **Error Handling**: Specific exceptions with proper logging
   - Don't allow things to silently fail. If something critical to the experiment (i.e. a specified model, a necessary API key) is missing, the researcher needs to be informed immediately.
+
+Now go read the next set of instructions for your role.
