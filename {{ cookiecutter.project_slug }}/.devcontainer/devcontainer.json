@@ -41,5 +41,9 @@
   "hostRequirements": {
     "gpu": "optional"
   },
-  "overrideCommand": false
+  "overrideCommand": true,
+  "command": [
+    "sleep",
+    "infinity"
+  ]
 }

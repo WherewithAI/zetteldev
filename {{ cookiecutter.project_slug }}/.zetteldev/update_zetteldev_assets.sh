@@ -74,7 +74,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-IFS=',' read -r -a ASSET_LIST <<< "${ZETTELDEV_ASSETS:-.zetteldev,CLAUDE.md,AGENTS.md,infra/infra.md,gambols/gambols.md,experiments/experiments.md,infra,gambols,experiments}"
+IFS=',' read -r -a ASSET_LIST <<< "${ZETTELDEV_ASSETS:-.zetteldev,.devcontainer,CLAUDE.md,AGENTS.md,infra/infra.md,gambols/gambols.md,experiments/experiments.md,infra,gambols,experiments}"
 
 require_cmd git
 
