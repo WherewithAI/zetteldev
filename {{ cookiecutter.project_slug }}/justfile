@@ -62,6 +62,10 @@ zettelmaker:
 
 # === Experiments ===
 
+# Run snakemake (pass args like: just snakemake all)
+snakemake *args:
+    uv run snakemake {{args}}
+
 # Create a new experiment
 create-experiment:
     uv run python .zetteldev/create_experiment.py

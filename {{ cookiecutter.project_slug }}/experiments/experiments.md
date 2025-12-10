@@ -37,7 +37,8 @@ The repo is structured like this:
 ├── infra
 ├── gambols
 
-├── pixi.toml
+├── pyproject.toml
+├── justfile
 ├── .gitattributes
 └── ...
 ```
@@ -70,7 +71,7 @@ rule run_main:
         "main.py"
 ```
 - Update Snakefile when adding/modifying experiment scripts.
-- Always define an `all` rule so the entire experiment can be run with `pixi run snakemake`.
+- Always define an `all` rule so the entire experiment can be run with `uv run snakemake`.
 
 ### Python Scripts
 - Anything that requires substantial computation should get its own python script. The results of computations should always be saved in the `./processed_data` folder in the experiment directory.
@@ -92,8 +93,8 @@ We use Quarto for visualizations and analysis. The design spec will specify figu
 ### Testing
 Always write and perform two types of tests.
 
-1. *Is it doing what the design.md spec wants?* While writing scripts, write corresponding tests in the `./tests` folder, using Pytest. Execute these with `pixi run test` (which executes `pytest --cov=src --cov=experiments --cov-report=term-missing`) or `pixi run pytest file`. Because there are multiple experiment directories, include the current experiment name in any tests you write to prevent collisions.
-2. *Does it run without errors?* In all scripts, respect a `test_run` parameter (set globally in the Snakefile) which performs only the bare minimum computation to use all bits of the code. For example, process a tiny subset of the input data; do only 2 epochs of training; use only 2 rounds of monte-carlo sampling. After implementing an experiment, set the `test_run` to true and run `pixi run snakemake all`. Ensure the full pipeline works.
+1. *Is it doing what the design.md spec wants?* While writing scripts, write corresponding tests in the `./tests` folder, using Pytest. Execute these with `just test` (runs all tests in the project) or `uv run pytest path/to/test_file.py` for a specific file. Because there are multiple experiment directories, include the current experiment name in any tests you write to prevent collisions.
+2. *Does it run without errors?* In all scripts, respect a `test_run` parameter (set globally in the Snakefile) which performs only the bare minimum computation to use all bits of the code. For example, process a tiny subset of the input data; do only 2 epochs of training; use only 2 rounds of monte-carlo sampling. After implementing an experiment, set the `test_run` to true and run snakemake. Ensure the full pipeline works.
 
 
 ## GitHub Issue Integration

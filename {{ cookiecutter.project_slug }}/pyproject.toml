@@ -40,6 +40,7 @@ dependencies = [
     "pre-commit>=4.2.0,<5",
     "pywaffle>=1.1.1,<2",
     "great-tables>=0.17.0,<0.18",
+    "snakemake>=8.30.0,<9",
 ]
 
 [build-system]
@@ -54,7 +55,6 @@ dev = [
     "pytest",
     "ruff",
     "mypy",
-    "snakemake>=8.30.0,<9",
 ]
 nbdev = [
     "nbdev>=2.3",
@@ -68,3 +68,8 @@ notebooks = [
 ]
 marimo = ["marimo>=0.15.2,<0.16"]
 cuda = []
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
