@@ -1,0 +1,121 @@
+# Zetteldev project task runner
+# Run `just` to see available commands
+
+default:
+    @just --list
+
+# === Development ===
+
+# Run pytest
+test:
+    uv run --group dev pytest
+
+# Install ipykernel for this project
+postinstall:
+    uv run python -m ipykernel install --user --name "{{ cookiecutter.project_slug }}-zetteldev"
+
+# Verify the project module imports correctly
+test-import:
+    uv run python -c "import {{ cookiecutter.project_slug }}"
+
+# === Notebooks ===
+
+# Launch Jupyter Lab
+notebooks:
+    uv run --group notebooks jupyter lab --ip=0.0.0.0
+
+# Launch Jupyter Notebook (CUDA environment)
+cuda-jupyter:
+    uv run --group notebooks jupyter notebook
+
+# === Marimo ===
+
+# Launch Marimo in edit mode
+marimo-edit:
+    uv run --group marimo marimo edit --watch --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo
+
+# Launch Marimo in run mode
+marimo-run:
+    uv run --group marimo marimo run --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo
+
+# === NBdev ===
+
+# Export notebooks to Python modules
+nbsync:
+    uv run --group nbdev nbdev_export
+
+# Clean notebook metadata
+nbclean:
+    uv run --group nbdev nbdev_clean
+
+# Update notebooks from Python modules
+pysync:
+    uv run --group nbdev nbdev_update
+
+# Generate documentation
+docmaker:
+    uv run --group nbdev nbdev_docs
+
+# Render notebooks to zettels (markdown)
+zettelmaker:
+    uv run --group nbdev quarto render nbs/experiments --to gfm --no-execute --output-dir ../zettels --profile zettels
+
+# === Experiments ===
+
+# Create a new experiment
+create-experiment:
+    uv run python .zetteldev/create_experiment.py
+
+# Run an experiment
+run-experiment:
+    uv run python .zetteldev/run_experiment.py
+
+# === Cloud Sync ===
+
+# Sync data to cloud storage
+sync-to-cloud:
+    uv run python .zetteldev/sync_cloud_data.py sync-to-cloud
+
+# Sync data from cloud storage
+sync-from-cloud:
+    uv run python .zetteldev/sync_cloud_data.py sync-from-cloud
+
+# === Zetteldev Container ===
+
+# Update zetteldev assets
+zdev-update:
+    bash .zetteldev/update_zetteldev_assets.sh
+
+# Start a shell in the zdev container
+zdev-shell:
+    bash .zetteldev/zdev-container.sh shell
+
+# Start Claude in the zdev container
+zdev-claude:
+    bash .zetteldev/zdev-container.sh claude
+
+# Start Codex in the zdev container
+zdev-codex:
+    bash .zetteldev/zdev-container.sh codex
+
+# Stop the zdev shell container
+zdev-stop-shell:
+    bash .zetteldev/zdev-container.sh stop shell
+
+# Remove the zdev shell container
+zdev-rm-shell:
+    bash .zetteldev/zdev-container.sh rm shell
+
+# === Git Worktrees ===
+
+# Create a new git worktree
+pug:
+    bash .zetteldev/new_git_worktree.sh
+
+# Review a git worktree
+rug:
+    bash .zetteldev/review_worktree.sh
+
+# Lazygit
+lg:
+    lazygit

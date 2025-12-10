@@ -1,9 +1,46 @@
 [project]
-name = "{{ cookiecutter.project_slug }}"
+name = "test_uv_zetteldev"
 version = "0.1.0"
+description = "Research notebook + agent workspace scaffolded by zetteldev"
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["questionary>=2.1.0,<3", "openreview-py>=1.48.1,<2", "pymupdf>=1.25.5,<2",  "markdown-it-py"]
-
+dependencies = [
+    "polars>=0.20,<0.21",
+    "numpy==1.23.5",
+    "pandas>=2.2.0,<2.3",
+    "scipy>=1.12.0,<1.13",
+    "matplotlib>=3.8.2,<3.9",
+    "seaborn>=0.13.2,<0.14",
+    "plotly>=5.18.0,<5.19",
+    "ipykernel>=6.28.0,<6.29",
+    "notebook>=7.4.2,<8",
+    "nbformat>=5.9.2,<5.10",
+    "jupyter>=1.0.0,<1.1",
+    "fastcore>=1.5.29,<1.6",
+    "fastprogress>=1.0.3,<2",
+    "datasets>=3.3.1,<4",
+    "scikit-learn>=1.6.1,<2",
+    "sympy>=1.12,<2",
+    "typer>=0.9.0,<0.10",
+    "rich>=13.7.0,<13.8",
+    "tqdm>=4.66.1,<4.67",
+    "python-dotenv",
+    "duckdb>=1.2.1,<2",
+    "sqlglot>=26.0.1,<27",
+    "marimo>=0.15.2,<0.16",
+    "anthropic>=0.49.0,<0.50",
+    "questionary>=2.1.0,<3",
+    "markdown-it-py",
+    "openreview-py>=1.48.1,<2",
+    "pymupdf>=1.25.5,<2",
+    "rpy2>=3.5.17,<4",
+    "pyzotero>=1.6.11,<2",
+    "ppi-python>=0.2.3,<0.3",
+    "openai==1.81.0",
+    "pre-commit>=4.2.0,<5",
+    "pywaffle>=1.1.1,<2",
+    "great-tables>=0.17.0,<0.18",
+]
 
 [build-system]
 requires = ["setuptools"]
@@ -11,3 +48,23 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "snakemake>=8.30.0,<9",
+]
+nbdev = [
+    "nbdev>=2.3",
+    "quarto-cli>=1.4.549",
+]
+notebooks = [
+    "jupyterlab>=4.0.5,<5",
+    "notebook>=7.4.2,<8",
+    "ipykernel>=6.28.0,<6.29",
+    "nbformat>=5.9.2,<5.10",
+]
+marimo = ["marimo>=0.15.2,<0.16"]
+cuda = []

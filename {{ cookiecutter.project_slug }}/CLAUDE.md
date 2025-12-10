@@ -13,12 +13,27 @@ Before you read the specific instructions for your role, here are the general ex
 # Conventions
 
 ## Environment & Package Management
-This project uses pixi, a poetry-like package manager. Available packages can be found in `pixi.toml` in the project root. If you require a package not available, please ask. Also ask if you know of a package which would make an implementation substantially easier.
+This project uses **uv** for Python package management and **just** as a task runner.
 
-- To execute code in the environment, use `pixi run ...`
-- `pixi run python script.py` - Run any Python script within the pixi environment.
-- `pixi run snakemake all` - Run the snakemake pipeline for an experiment
-- `pixi add conda_package` or `pixi add --pypi pip_package`. 
+### uv basics
+- `uv sync` - Install all dependencies from pyproject.toml
+- `uv sync --group dev` - Also install dev dependencies
+- `uv run python script.py` - Run a script in the virtual environment
+- `uv add package` - Add a new dependency
+- `uv add --dev package` - Add a dev dependency
+- `uv pip install package` - pip-compatible interface for one-off installs
+- `uv pip compile` / `uv pip sync` - pip-tools compatible workflow
+
+Dependencies are defined in `pyproject.toml`. If you need a package not listed, please ask.
+
+### just task runner
+Common tasks are defined in `justfile`. Run `just` to see all available commands:
+- `just test` - Run pytest
+- `just notebooks` - Launch Jupyter Lab
+- `just nbsync` - Export notebooks to Python modules
+- `just create-experiment` - Create a new experiment
+
+See the full list with `just --list`. 
 
 ## Code Style Guidelines
 
