@@ -64,7 +64,7 @@ zettelmaker:
 
 # Run snakemake (pass args like: just snakemake all)
 snakemake *args:
-    uv run snakemake {{args}}
+    uv run snakemake {% raw %}{{args}}{% endraw %}
 
 # Create a new experiment
 create-experiment:
