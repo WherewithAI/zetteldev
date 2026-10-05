@@ -1,193 +1,84 @@
-# Development
+# About this Repo
 
-## Dev Container Quickstart
+This repository is a research notebook, cut from the [Zetteldev](https://github.com/WherewithAI/zetteldev) template: a way of working in which an experiment is the unit of analysis, a notebook is the seat of every consequential line of code, and the machinery around them (a cluster, a notebook host, a data store, a figure bucket) is reached through one set of tools that every Zetteldev repository shares. The agents that work here read the same instructions a person would: `CLAUDE.md` imports the *packs* under `.zetteldev/agents/`, and `AGENTS.md` is the same text inlined for tools that do not follow imports.
 
-1. Install the VS Code **Dev Containers** extension and ensure Docker Desktop (or the Docker Engine) is running.
-2. Clone the repository, open it in VS Code, and run `Dev Containers: Reopen in Container`.
-3. The repo mounts at `/workspaces/{{ cookiecutter.project_slug }}` inside the container. Shared caches live under `/caches/*`.
-4. After the container starts, run `zdev docs update` to sync organisation agent guidance files.
-5. Run `pixi install` (the `postCreateCommand` does this automatically) and then `pixi run postinstall`.
-
-### Keeping Zetteldev Assets Fresh
-
-Whenever you want the latest `.zetteldev` tools and shared docs (`CLAUDE.md`, `AGENTS.md`, `infra.md`, `gambols.md`, `experiments.md`), run:
+Setting the repository up on a machine is the business of the setup guide, `.zetteldev/agents/setup.md`, and of one command that says what is still missing:
 
 ```sh
-.zetteldev/update_zetteldev_assets.sh
+uv sync          # the environment, including the tooling package in .zetteldev
+just doctor      # one line per item of the guide, with a verdict; --here skips the cluster and the notebook host
 ```
 
-Use `--ref <branch-or-tag>` or `--repo <url>` to pull from a different upstream, and add `--clean` to remove local files that no longer exist upstream.
+## Library code vs experiment code
 
-### GPU Hosts
+The library is one place; the lab is another. Default Python projects do not respect that division, and this one does.
 
-The default image is `ghcr.io/wherewithai/zdev:cuda-12.4`. If your machine has a CUDA-capable GPU, enable it by creating `.devcontainer/devcontainer.local.json` with:
-
-```json
-{
-  "runArgs": ["--gpus", "all"]
-}
-```
-
-For CPU-only machines, you can switch to the CPU image:
-
-```json
-{
-  "image": "ghcr.io/wherewithai/zdev:cpu"
-}
-```
-
-### Local (No Container) Setup
-
-If you prefer running directly on the host, install git-lfs (e.g. `brew install git-lfs`), install [Pixi](https://pixi.sh) (`brew install pixi` or the script below), then follow the package management section.
-
-## Package Management
-
-We use Pixi, a modern Poetry-like package manager that supports declarative installation of conda *and* pip packages. There may be no 'one true' Python package manager, but Pixi is the 'one true' Python package manager. Behold it and weep! (As, on hearing the Good News, did one past labmate, who had previously spent up to one day a week wrestling with conda/pip incompatibilities and breaking CUDA environments.)
-
-First install Pixi with `brew install pixi`, or
-
-```sh
-curl -fsSL https://pixi.sh/install.sh | bash
-```
-
-Then clone the repo and create the project environment by running
-
-```sh
-pixi install # downloads all python packages
-pixi run postinstall # installs the '{{ cookiecutter.project_slug }}' package and creates a jupyter kernel
-```
-
-To add packages,
-
-```sh
-pixi add conda-package
-pixi add --pypi pip-only-package
-```
-
-To run things in this environment, you have a few options
-
-```sh
-pixi shell # like 'conda activate'; changes Python in path to that of your project
-pixi run python script.py # to run python scripts, just like Poetry
-pixi run snakemake rule_name # to run with the DAG powerful *snakemake* -- see below!
-```
-
-Indeed, you can define custom pixi commands for a project in `pyproject.toml`, as we've done, e.g. with `pixi run test` (run pytest).
-
-To use Jupyter notebooks with the Pixi kernel, either select the `{{ cookiecutter.project_slug }}-zetteldev` kernel we created with postinstall—or just launch a new Jupyter session with `pixi run notebooks`.
-
-## zdev Helper
-
-Inside the container, the `zdev` helper manages the runtime environment:
-
-- `zdev shell` — start an interactive shell with caches and dotenvs loaded.
-- `zdev jupyter` — launch Jupyter Lab bound to `127.0.0.1`.
-- `zdev net log-on|log-off` — toggle the optional egress logging proxy.
-- `zdev agents update` — update the `claude-code` and `openai` CLIs into `~/.local/zdev/npm`.
-- `zdev docs update` — refresh `~/.claude/CLAUDE.md` and `~/AGENTS.md`.
-- `zdev doctor` — check cache mounts, GPU visibility, and proxy state.
-
-Before handing the session back (especially after using credentials) run `zdev auth clear` to open a shell with sensitive variables removed.
-
-## Dotenv & Secrets
-
-- Project-specific secrets: `./.env.local` (git ignored).
-- Machine-wide overrides: `~/.config/zdev/.env.local`.
-- Runtime environment variables always win over dotenv files.
-
-Common keys include `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, and overrides for cache locations. Never commit these files.
-
-## Library code vs Experiment code
-
-As academics, we understand this: the library is one place; the lab is another. Sadly, default Python projects don't understand this, and have several times made quite a mess by bringing hydrochloric acid and liquid nitrogen into Firestone. Good thing *this* project respects that division. 
-
-1. The '/experiments' folder holds all of the code/data/analyses involved in experiments: data wrangling logic, model training scripts, metric computations, and Quarto reports and jupyter notebooks detailing the results. It gets better. Who says one repository can hold only one experiment? We divide the analyses into distinct experiment subfolders, ala '/experiments/homogenization-metrics-sanity-check'. This allows multiple people to work on different experiments independently without fearing merge conflicts. Think of an experiment as the code/computation/data that produces one set of related figures for a paper.
-2. The '/{{ cookiecutter.project_slug }}' folder holds the Python library, which can by imported in any experiment with `import {{ cookiecutter.project_slug }}`. This houses the logic shared between experiments.
-
-Thus, the repo is structured like this:
+1. `experiments/` holds everything an experiment is: its design, its notebooks, the scripts that run it at scale, its data and its figures. One repository holds many experiments, each in its own numbered folder, so that several people can work on different experiments without fearing a merge conflict. Think of an experiment as the code, computation and data that produce one set of related figures for a paper.
+2. `{{ cookiecutter.project_slug }}/` holds the Python library, importable from any experiment with `import {{ cookiecutter.project_slug }}`. It houses the logic shared between experiments, and most of it is exported there from notebooks by nbdev (below).
 
 ```
 .
 ├── experiments
-│   ├── example_experiment
-│   │   ├── design.md
-│   │   ├── report.qmd
-│   │   ├── main.py
-│   │   ├── Snakefile
-│   │   ├── processed_data/
+│   ├── 1-example-experiment
+│   │   ├── design.md                 (a stub pointing at the zettel that designs the experiment)
+│   │   ├── 00-example-big-picture.ipynb   (the running chronicle: every run, variation and finding)
+│   │   ├── 01-foundational-notebook.ipynb (the method, developed and exported from here)
+│   │   ├── demos/                    (marimo notebooks: interactive analysis of results)
+│   │   ├── Snakefile                 (what runs at scale, and where its outputs go)
+│   │   ├── scripts/                  (what the Snakefile orchestrates)
+│   │   ├── processed_data/           (data, never in git; tracked by DVC, the cluster the store)
 │   │   ├── figures/
-│   │   └── tests/
-│   ├── another_experiment
-│   │   └── ...
-├── {{ cookiecutter.project_slug }} 
-│   ├── utils.py
-│   ├── visualization.py
-│   └── ...
-├── pyproject.toml
-├── .gitattributes
-└── ...
+│   │   ├── tests/
+│   │   ├── .dvcpull                  (what this experiment's notebooks read)
+│   │   └── .solveit-dialog           (the notebook's name on the notebook host)
+│   └── 2-another-experiment
+├── {{ cookiecutter.project_slug }}/          (the library)
+├── nbs/                              (the library's own notebooks, if it has any)
+├── .zetteldev/                       (the tooling, one editable package; its agents/ are the packs)
+├── pyproject.toml                    ([tool.zetteldev] names what everyone on the repository shares)
+└── justfile                          (every recipe; `just --list`)
 ```
 
-You'll notice that each experiment folder is prepopulated with this template:
-- `design.md`: Describe goals, motivation, and any to-dos as Markdown task lists
-- `report.qmd`: Quarto file for generating the final output (HTML)
-- `main.py`: Main Python script controlling the experiment's logic
-- `Snakefile`: Defines at least two rules—(1) run main.py, (2) render report.qmd. These will be explained below!
-- `processed_data/`: Holds intermediate or final data outputs. Synced via Git LFS if desired
-- `figures/`: Store images, plots, or other visuals for your report
-- `tests/`: Contains experiment-specific Pytest files for unit or integration testing
+A new experiment comes from `just create-experiment <name>`, which lays down every file above, numbers the folder, and names the dialog. The method itself, the conversation between a zettel, a set of notebooks and a Snakefile, is the first pack: `.zetteldev/agents/zetteldev.md`.
 
-To make a new experiment subfolder with this structure, run `pixi run create-experiment`. 
+## Running things at scale: Snakemake and the cluster
 
+Each experiment's `Snakefile` names what script performs what computation, where its outputs land and what parameters it is given, so that a run is a rule and a rerun is free when nothing upstream changed. CPU-sized rules run here with `uv run snakemake`; anything that wants a GPU runs on the cluster, where a rule's SLURM shape comes from a model's block in the target registry, `.zetteldev/della/targets.yaml`, and `just snake-della <experiment> <target>` drives it from this machine. Single jobs go through the submission gate, `just della-sbatch`, which checks that the checkout is clean and pushed, lints the script, runs its preflight lines and records the commit the job ran. Long-lived servers a notebook calls, a retrieval index or a chat model, are named in `.zetteldev/services.yaml` and reached with `just service up|tunnel|down`. All of this is the cluster pack, `.zetteldev/agents/della.md`, written from a season of failures that each cost compute.
 
-## Become Omnipotent with Snakemake!
+## Data
 
-[Snakemake](https://snakemake.readthedocs.io/en/stable/) is a 'workflow management system for scalable and reproducible data analyses'. It was developed by a team of computational biologists who, after spending years (mis)typing intricate commands into terminals, achieved Workflow Enlightenment and realized they should write their complex commands down in a file, associate them with 'tasks' that could be invoked with simple commands, and define input-output rules to create an elegant Directed Acyclic Graph of task dependencies.
+Data lives on the cluster and is versioned by DVC. A result directory is tracked by the machine that made it, which hashes its contents into a cache and writes a small pointer file beside it; git commits the pointer, never the data. The cluster's cache *is* the store: it never pushes, the workstation reaches it over ssh and relays to the notebook host, and no cluster credential leaves the workstation. Each experiment's `.dvcpull` names the pointers its notebooks read, and that list is what every machine pulls; nothing pulls by size. A job through the gate names its outputs with `--dvc`, a Snakemake workflow tracks its outputs through the shared hooks, and a sweep on the cluster catches what was missed, so nobody tracks by hand.
 
-This ties very nicely with our reproducible experiment folders. Each experiment folder has a 'Snakefile' which describes at least two computations performed by the experiment. By default, something like this:
-
+```sh
+just data pull [experiment]     # fetch the lists
+just data status [experiment]   # each pointer's state, and what is untracked
+just data sync                  # the hourly cycle: pull, push the cache to the cluster, commit pointers, pull on the notebook host
 ```
-rule run_main:
-	input:
-		# Define any input files here, e.g. "../some_global_data.csv"
-		script = "main.py"
-		dataset = "../data/MNIST",
-		annotations = "../data/annotations_path.csv"
-	output:
-		# If main.py produces new data files, list them here
-		trained_classifier = "processed_data/MNIST_Forward_forward.pt",
-		predictions = "processed_data/MNIST_forward_forward_preds.pkl"
-	script:
-		"pixi run {input.script} --datapath {input.dataset} --labels {input.annotations} "
 
-rule render_report:
-	input:
-		report = "report.qmd",
-		predictions = "processed_data/MNIST_forward_forward_preds.pkl"
-	output:
-		# The rendered HTML goes into ../../reports/
-		"homogeneity-under-random-words.html"
-	shell:
-		"quarto render report.qmd --output homogeneity-under-random-words.html"
+The doctrine is the data section of `.zetteldev/agents/zetteldev.md`; the cluster's share of the mechanics is in `della.md`.
+
+## nbdev: notebooks that export the library
+
+A notebook that develops a method is also its source. Cells marked `#|export` are written to the module the notebook names with `#|default_exp`, so `{{ cookiecutter.project_slug }}/` is built from `nbs/` and from the experiments' notebooks rather than typed beside them. `just nbdev-export <notebook>` exports one notebook and commits the module; a light edit to an exported file is carried back with `nbdev-update`. The autonomous report an agent leaves behind is written in this fashion, with its commentary in `>` blockquotes so that the author's words and the agent's are never confused; the conventions are in the method pack.
+
+## SolveIt: where notebooks are reviewed and edited
+
+The numbered notebooks are opened on SolveIt, a cloud instance that gives Jupyter a next-generation face and an AI of its own; each experiment names its dialog in `.solveit-dialog`. Once a dialog is open there, the instance's copy is the living one, and every edit goes through `just sicx <cmd>`: list, add, edit, run, bootstrap a fresh kernel, dump a run of cells. An hourly sync (`just solveit-sync`) commits what the server auto-saved on the instance, merges it here, pushes to GitHub and fast-forwards the instance's checkout, with guards against a dialog writing an older state over newer work. The instance reaches only this workstation, so code, pointers and data all travel through here. The pack is `.zetteldev/agents/solveit.md`.
+
+## marimo: the living workbench
+
+When the author sits beside the agent, the finished report gives way to a reactive notebook in the experiment's `demos/` folder: interactive visualization, exploratory interpretability, the analysis of results already produced. A marimo notebook reads what the numbered notebooks and the cluster have made and turns it over in the hand; it does not define the method, and what a demo discovers is promoted back into the numbered notebooks. Notebooks are served through Mo's Notebooks and reached with `mo pair` and `mo code`; the pack is `.zetteldev/agents/mo.md`, and the e-ink skin in `.zetteldev/eink.css` is every notebook's default.
+
+## Keeping the tooling current
+
+The tooling under `.zetteldev` is shared with every Zetteldev repository. A change is tried in the repository where the work is, and once it has proven itself it is lifted into the template; a repository that did not originate a change takes it with
+
+```sh
+just zdev-update        # syncs .zetteldev, the lint hook, the quiz skill and the tooling tests; never a repository's registries
 ```
- 
-The first executes the experiment's main python script against a dataset and annotations to train a 'forward forward' model. The second produces an HTML file with the results, which can also include images and descriptive text. 
 
-Snakemake can even write and submit slurm scripts on your behalf, letting you run computations on clusters just by invoking 'pixi run snakemake rule_name'. See the snakemake slurm executor plugin.
+which also rebuilds `AGENTS.md`, since a changed pack leaves the inlined copy stale. To start another repository from the template:
 
-## Data 
-
-Store raw artifacts to be used by many experiments in `/data`. Store anything large produced by an experiment (e.g. model checkpoints, processed datasets, classifications) in the `processed_data` folder of the experiment.
-
-Both are auto-synced to Git LFS, so you needn't worry about ignoring or excluding them.
-
-
-## This is quite an idiosyncratic repo! What is it based on?
-
-The burgeoning `Zetteldev` framework from WherewithAI, which attempts to realize the long-held dream of *literate programming* in the most cognitively ergonomic version to-date. 
-
-You can set up a Zetteldev repo for yourself with [Cookiecutter](https://github.com/cookiecutter/cookiecutter).
-
-```
-cookiecutter gh:WherewithAI/zetteldev
+```sh
+uvx --from cookiecutter cookiecutter gh:WherewithAI/zetteldev
 ```
