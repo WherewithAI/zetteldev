@@ -163,4 +163,10 @@ done
 
 popd >/dev/null
 
+# AGENTS.md is a build product of this repository's CLAUDE.md with the packs inlined; a sync that changed a pack has left it stale
+if [[ -f "$REPO_ROOT/.zetteldev/agents/build_agents_md.py" && -f "$REPO_ROOT/CLAUDE.md" ]]; then
+  echo "Rebuilding AGENTS.md from CLAUDE.md and the packs"
+  (cd "$REPO_ROOT" && python3 .zetteldev/agents/build_agents_md.py)
+fi
+
 echo "Done. Remember to review and commit any changes."
