@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# target-info — one field of a target in .zetteldev/della/targets.yaml, or the whole record as JSON, for shell
+# helpers (serve_target in lib/vllm_server.sh) so that no sbatch retypes a model path, venv, flag or fraction.
+#   target-info NAME            -> the resolved record as JSON
+#   target-info NAME FIELD      -> the field's value (lists space-joined, mappings as K=V lines, missing -> empty)
+set -euo pipefail
+NAME="${1:?usage: target-info NAME [FIELD]}"; FIELD="${2:-}"
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO_ROOT="$(cd "$BIN/../../.." && pwd)"
+PYBIN="$REPO_ROOT/.venv/bin/python"; [[ -x "$PYBIN" ]] || PYBIN="python3"
+"$PYBIN" - "$NAME" "$FIELD" <<'EOF'
+import json, sys
+from zetteldev.della import load_targets
+name, field = sys.argv[1], sys.argv[2]
+targets = load_targets()
+if name not in targets: sys.exit(f"target-info: unknown target {name!r}; known: {', '.join(sorted(targets))}")
+t = targets[name]
+if not field: print(json.dumps(t, indent=1)); sys.exit(0)
+v = t.get(field)
+if v is None: print("")
+elif isinstance(v, list): print(" ".join(str(x) for x in v))
+elif isinstance(v, dict): print("\n".join(f"{k}={x}" for k, x in v.items()))
+else: print(v)
+EOF

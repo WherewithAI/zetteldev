@@ -3,3 +3,6 @@
 experiments/*/processed_data/** filter=lfs diff=lfs merge=lfs -text
 # Ditto for files in the 'data' folder; this holds data which is shared between experiments.
 data/** filter=lfs diff=lfs merge=lfs -text
+
+# DVC writes one ignore line per tracked entry beside it; two machines tracking in one directory both create the file, and the union is always right
+experiments/*/processed_data/**/.gitignore merge=union

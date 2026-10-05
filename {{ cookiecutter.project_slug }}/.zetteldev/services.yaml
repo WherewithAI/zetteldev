@@ -1,0 +1,20 @@
+# Long-lived services on Della that notebooks reach through ssh tunnels. `just service up|status|tunnel|down <name>`
+# (zetteldev.services). A service runs either as a SLURM job (`mode: sbatch`, the script publishes "<node>:<port>"
+# into `addr_file` in $HOME on Della) or on a visualisation head node without a job (`mode: viz`: a tmux session
+# on `viz_host`, started by `viz_script`, which publishes the same addr_file). `tunnel` opens laptop:<local_port>
+# to the service and solveit:<local_port> back to the laptop, and writes <env_var>=http://localhost:<local_port><url_suffix>
+# into ~/.config/zetteldev/services.env, which `zetteldev.services.url(name)` and the notebooks read.
+# An example, as the first repository ran it (uncomment and adapt; the sbatch and viz scripts are the experiment's):
+# rag:
+#   description: news retrieval (Qwen3-Embedding-8B + Qwen3-Reranker-4B + FAISS ext index; /retrieve and /embed)
+#   mode: viz
+#   viz_host: della-vis2
+#   viz_script: .zetteldev/della/scripts/viz_rag_service.sh
+#   sbatch: experiments/35-rl-forecasting/scripts/slurm/rag_service.sbatch      # the job form; `up` falls back to it when the viz node's cards are taken
+#   viz_min_free_mb: 32000        # embed 0.42 + rerank 0.22 of an A40: below this, another user's job holds the card
+#   up_timeout: 900               # the index takes ~3 min to load; past this, the log tail is printed and `up` fails
+#   addr_file: rag_service.addr
+#   local_port: 8009
+#   health: /health
+#   env_var: RAG_URL
+#   url_suffix: ""

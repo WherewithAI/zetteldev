@@ -1,46 +1,43 @@
 [project]
-name = "test_uv_zetteldev"
+name = "{{ cookiecutter.project_slug }}"
 version = "0.1.0"
 description = "Research notebook + agent workspace scaffolded by zetteldev"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "polars>=0.20,<0.21",
-    "numpy==1.23.5",
-    "pandas>=2.2.0,<2.3",
-    "scipy>=1.12.0,<1.13",
-    "matplotlib>=3.8.2,<3.9",
-    "seaborn>=0.13.2,<0.14",
-    "plotly>=5.18.0,<5.19",
-    "ipykernel>=6.28.0,<6.29",
-    "notebook>=7.4.2,<8",
-    "nbformat>=5.9.2,<5.10",
-    "jupyter>=1.0.0,<1.1",
-    "fastcore>=1.5.29,<1.6",
-    "fastprogress>=1.0.3,<2",
-    "datasets>=3.3.1,<4",
-    "scikit-learn>=1.6.1,<2",
-    "sympy>=1.12,<2",
-    "typer>=0.9.0,<0.10",
-    "rich>=13.7.0,<13.8",
-    "tqdm>=4.66.1,<4.67",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "polars>=1.0",
+    "scipy>=1.12",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "plotly>=5.18",
+    "scikit-learn>=1.6",
+    "sympy>=1.12",
+    "datasets>=3.3",
+    "duckdb>=1.2",
+    "sqlglot>=26",
+    "ipykernel>=6.28",
+    "notebook>=7.4",
+    "nbformat>=5.9",
+    "jupyter>=1.0",
+    "fastcore>=1.5",
+    "fastprogress>=1.0",
+    "typer>=0.9",
+    "rich>=13.7",
+    "tqdm>=4.66",
     "python-dotenv",
-    "duckdb>=1.2.1,<2",
-    "sqlglot>=26.0.1,<27",
-    "marimo>=0.15.2,<0.16",
-    "anthropic>=0.49.0,<0.50",
-    "questionary>=2.1.0,<3",
+    "pyyaml",
+    "marimo>=0.15",
+    "anthropic>=0.49",
+    "openai>=1.81",
+    "questionary>=2.1",
     "markdown-it-py",
-    "openreview-py>=1.48.1,<2",
-    "pymupdf>=1.25.5,<2",
-    "rpy2>=3.5.17,<4",
-    "pyzotero>=1.6.11,<2",
-    "ppi-python>=0.2.3,<0.3",
-    "openai==1.81.0",
-    "pre-commit>=4.2.0,<5",
-    "pywaffle>=1.1.1,<2",
-    "great-tables>=0.17.0,<0.18",
-    "snakemake>=8.30.0,<9",
+    "pymupdf>=1.25",
+    "great-tables>=0.17",
+    "snakemake>=9",
+    "zetteldev",                 # the tooling in .zetteldev, an editable package (see [tool.uv.sources])
+])
 ]
 
 [build-system]
@@ -49,12 +46,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+# Only the project module: the default namespace walk scans every folder (data and .venv included) on each rebuild.
+include = ["{{ cookiecutter.project_slug }}*"]
+namespaces = false
 
 [dependency-groups]
 dev = [
     "pytest",
     "ruff",
     "mypy",
+    "dvc[ssh]>=3.67",            # the data tier (zetteldev.md, the data section)
 ]
 nbdev = [
     "nbdev>=2.3",
@@ -66,10 +67,27 @@ notebooks = [
     "ipykernel>=6.28.0,<6.29",
     "nbformat>=5.9.2,<5.10",
 ]
-marimo = ["marimo>=0.15.2,<0.16"]
+marimo = ["marimo>=0.15"]
 cuda = []
 
 [tool.pytest.ini_options]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.uv.sources]
+zetteldev = { path = ".zetteldev", editable = true }
+
+# What everyone working on this repository shares; what differs per person (della_user_scratch, and any alias that
+# differs) goes in ~/.config/zetteldev/config.toml. `python3 .zetteldev/config.py` prints every resolved value.
+[tool.zetteldev]
+della_host = "della"                          # ssh alias of the cluster's login node
+della_account = "henderson"                   # the SLURM account jobs charge
+della_group_scratch = "/scratch/gpfs/HENDERSON"   # the group's scratch fileset (weights cache derives from it)
+solveit_host = "solveit"                      # ssh alias of the notebook instance
+# compute_host = "..."                        # the Dask machine; unset means computations run in-process
+# figures_url = "https://..."                 # public base URL of the figures bucket
+
+# marimo reads [tool.marimo] from the nearest pyproject.toml; the e-ink skin becomes every notebook's default.
+[tool.marimo.display]
+custom_css = [".zetteldev/eink.css"]

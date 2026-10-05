@@ -1,0 +1,312 @@
+# vLLM target registry — the single source of truth for a model on Della.
+#
+# Two consumers read this file (see zetteldev.della and bin/della-vllm-run):
+#   1. `gpu("name")` in a Snakemake rule's `resources:` -> the SLURM request
+#      (partition, gpus, cpus, mem, runtime, --gres) for the executor-slurm plugin.
+#   2. `della-vllm-run --target name` -> the della-lib server launch
+#      (model path, tensor-parallel size, tool parser, context length).
+# Add a model = add one block here; both the allocation and the server follow.
+#
+# Required per target: partition, model_path, tensor_parallel, tool_parser,
+#   max_model_len, runtime (minutes).
+# NOTE: in a flow mapping ({ ... }) a ${cache} value must be QUOTED, else YAML
+#   reads the braces as a nested mapping, e.g.
+#       embed: { model_path: "${cache}/Llama-3.1-8B-Instruct" }
+#
+# Optional: embed {model_path}  -> embedding sidecar. It COLOCATES on the chat
+#   model's rank-0 GPU at ~0.12 of that card's memory (the chat server drops to
+#   0.82 to make room) and adds NO GPU to the request. Never give an embedder a
+#   card to itself: alone on an H100 it samples 0% utilisation, which caps the
+#   job's efficiency at tp/(tp+1) and trips Della's 90-minute idle fuse. Before
+#   the audit of 2026-08-17 this key added a GPU; that cost 51.6 idle GPU-hours
+#   and every long slurm-cancellation in exp38's record.
+#   mem_mb / cpus_per_task / gpus -> override the derived SLURM shape;
+#   vllm_extra: [..]            -> raw flags appended to the vLLM launch.
+
+# della-wide constants; per-target blocks inherit via the <<: *defaults merge.
+_defaults: &defaults
+  account: ${della_account}
+  cache: ${della_weights_cache}
+
+# Belief-extraction model for experiment 33 (section 3). No embed sidecar: belief
+# extraction emits *text* beliefs; embedding is a decoupled downstream step
+# (smallscale_analysis.py), so the extraction job needs only the chat server.
+gpt-oss-120b:
+  <<: *defaults
+  partition: pli-c            # 2x H100 is enough; pli-c has shorter queues
+  model_path: ${cache}/gpt-oss-120b
+  tensor_parallel: 2
+  tool_parser: openai         # gpt-oss requires the openai parser (not hermes)
+  max_model_len: 32768
+  runtime: 180
+
+# Exp-34 Stage-2→3 SFT teacher/student: gpt-oss-20b on a single GPU. Same MXFP4
+# weights as local Ollama, but vLLM with the openai tool-parser gives reliable
+# Harmony->tool_call parsing for the agentic transcript generation.
+gpt-oss-20b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/gpt-oss-20b
+  tensor_parallel: 1
+  tool_parser: openai         # gpt-oss requires the openai parser (not hermes)
+  max_model_len: 32768
+  runtime: 180
+
+# Exp-34 hybrid-eval comparison: Qwen3-8B (the hybrid think/no-think model) as a tool-calling chat
+# server, to see how it forecasts on the 120-question hybrid-evidence battery vs gpt-oss. hermes tool
+# parser + deepseek_r1 reasoning parser (Qwen3's <think> channel); thinking ON to match the gpt-oss run.
+qwen3-8b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/Qwen3-8B
+  tensor_parallel: 1
+  tool_parser: hermes
+  max_model_len: 32768
+  runtime: 300
+  vllm_extra: ["--reasoning-parser", "deepseek_r1"]
+
+# Exp-34 within-family scaling point: Qwen3-32B on 2x H100 (TP=2; 64 heads / 8 KV heads / vocab
+# 151936 all divide 2). Same hermes + deepseek_r1 setup as qwen3-8b, thinking ON. ~64 GB bf16 weights
+# + KV cache for 8 concurrent workers fits comfortably in 160 GB.
+qwen3-32b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/Qwen3-32B
+  tensor_parallel: 2
+  tool_parser: hermes
+  max_model_len: 32768
+  runtime: 300
+  vllm_extra: ["--reasoning-parser", "deepseek_r1"]
+gpt-oss-20b-bf16:             # Exp-2 matched BASE: gpt-oss-20b dequantized to bf16 (so base & DPO share
+  <<: *defaults                # the serving stack — MXFP4 MoE generation is broken on this vLLM build)
+  partition: pli-c
+  model_path: ${cache}/exp34_gptoss_bf16_base
+  tensor_parallel: 1
+  tool_parser: openai
+  max_model_len: 32768
+  runtime: 300
+  vllm_extra: ["--trust-remote-code"]
+
+
+# Larger instruct model (H200s). Kept here as a registry example / future use.
+qwen3-80b:
+  <<: *defaults
+  partition: ailab            # Qwen3-80B needs 141GB H200s
+  model_path: ${cache}/Qwen3-Next-80B-A3B-Instruct
+  tensor_parallel: 2
+  tool_parser: hermes
+  max_model_len: 16384
+  runtime: 180
+
+# Small model, single GPU, no embed sidecar.
+llama-8b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/Llama-3.1-8B-Instruct
+  tensor_parallel: 1
+  tool_parser: llama3_json
+  max_model_len: 16384
+  runtime: 60
+
+# Exp-34 news-RAG (notebook 07): embed the forecast-news corpus into 512-tok/stride-64 passages with
+# Qwen3-Embedding-8B (faithful to OpenForesight's embedding_retrieval; no summarise/rerank). NOT a
+# della-vllm-run server — the news_embed rule loads the model in-process via vLLM; gpu() only reads the
+# SLURM shape here (1 GPU/shard, ~120 month shards on pli-c). tool_parser is unused for an embed job.
+news-embed:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/Qwen3-Embedding-8B
+  tensor_parallel: 1
+  tool_parser: hermes
+  max_model_len: 8192
+  runtime: 360          # 6h/shard: a 2018 month ~2h, but recent high-volume months run longer
+  mem_mb: 128000
+  cpus_per_task: 16
+
+# Exp-35 question-quality filter: gpt-oss-120b spread across 4 GPUs for classification
+# throughput over the 52k-question train split (20 concurrent della-vllm-run workers).
+gpt-oss-120b-quad:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/gpt-oss-120b
+  tensor_parallel: 4
+  tool_parser: openai         # gpt-oss requires the openai parser (not hermes)
+  max_model_len: 32768
+  runtime: 360
+
+# Exp-35 policy: Qwen3.5-9B (the selector under training on Tinker; the frozen updater), served from the
+# nightly-vllm venv with the qwen3_coder tool dialect and thinking off by request. The pooling twin serves the
+# same weights as a mean-of-last-layer embedder (exp25's belief embedding) beside it: see
+# experiments/35-rl-forecasting/scripts/slurm/qwen_service.sbatch, which these entries size.
+# `serve_target NAME --port P --gpu G [--fraction F]` (lib/vllm_server.sh) launches a target from these keys alone,
+# so no sbatch retypes them: venv (the interpreter that serves it), env (variables the launch needs), kind (chat or
+# embed, for the lint), min_fraction (the smallest --gpu-memory-utilization that holds the weights plus a cache; the
+# lint rejects less). 2026-09-09: a retyped venv path, a missing FLASHINFER flag and an embedder at 0.12 each cost a
+# queued job before this existed.
+qwen3.5-4b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${della_weights_cache}/Qwen3.5-4B   # the eval serves merged Tinker checkpoints at other paths through --model
+  tensor_parallel: 1
+  tool_parser: qwen3_coder
+  max_model_len: 65536
+  runtime: 360
+  vllm_extra: ["--enable-auto-tool-choice"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: chat
+  min_fraction: 0.30                                                   # 9 GB of weights + a 64k-context cache
+
+qwen3.5-9b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${della_models}/Qwen3.5-9B      # the transformer_cache entry is an empty husk
+  tensor_parallel: 1
+  tool_parser: qwen3_coder
+  max_model_len: 65536
+  runtime: 360
+  vllm_extra: ["--enable-auto-tool-choice"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly            # transformers 5.x for the Qwen3.5 architecture
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}                        # the nightly's flashinfer-cubin wheel lags (ABI compatible)
+  kind: chat
+  min_fraction: 0.45                                                   # 18 GB of weights + a 32k-context cache
+qwen3.5-9b-embed:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${della_models}/Qwen3.5-9B
+  tensor_parallel: 1
+  tool_parser: qwen3_coder
+  max_model_len: 8192
+  runtime: 360
+  vllm_extra: ["--runner", "pooling", "--convert", "embed", "--pooler-config", "{\"pooling_type\":\"MEAN\"}"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: embed
+  min_fraction: 0.30
+
+# The same weights pooled on the LAST token (the author's page 8 on embedding quality): the hidden state at the final position of the framed prompt.
+qwen3.5-9b-embed-last:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${della_models}/Qwen3.5-9B
+  tensor_parallel: 1
+  tool_parser: qwen3_coder
+  max_model_len: 8192
+  runtime: 360
+  vllm_extra: ["--runner", "pooling", "--convert", "embed", "--pooler-config", "{\"pooling_type\":\"LAST\"}"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: embed
+  min_fraction: 0.30
+
+# Qwen3-Embedding-8B as an OpenAI-compatible /v1/embeddings server from the repo venv (vLLM 0.11): the news RAG's
+# embedder and the FB nets' belief embedder inside a training job.
+qwen3-embed-8b:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${cache}/Qwen3-Embedding-8B
+  tensor_parallel: 1
+  tool_parser: hermes
+  max_model_len: 8192
+  runtime: 360
+  vllm_extra: ["--task", "embed", "--enforce-eager"]
+  venv: ${della_scratch}/.venv
+  kind: embed
+  min_fraction: 0.30                                                   # 16 GB of weights; 0.12 could not even load them
+
+# Exp-35 belief-tree fleet: one card serving policy + embed + rerank + RAG (grow_trees.sbatch). gpu() sizes it.
+belief-trees:
+  <<: *defaults
+  partition: pli-c
+  model_path: ${della_models}/Qwen3.5-9B
+  tensor_parallel: 1
+  tool_parser: qwen3_coder
+  max_model_len: 65536
+  runtime: 360
+  mem_mb: 200000
+  cpus_per_task: 16
+
+# Exp-44 policy zoo (2026-09-15): the models that were absent from both stores, pulled into the PLI store
+# (/scratch/gpfs/PLI/models, the quota with room), plus the PLI copy of Qwen3.8-27B. All three serve from the
+# nightly venv (vLLM 0.23, transformers 5.14). Thinking is ON for exp44 (the author, 2026-09-15: belief extraction
+# needs the reasoning), set per model by its own dial at request time and captured per turn; the belief turn and the
+# act turn see the same policy either way. GLM-5.3-Flash (glm5_next) is NOT registered in any vLLM on Della as of
+# 2026-09-15 and has no block until an interpreter that loads it exists.
+qwen3.5-27b:
+  <<: *defaults
+  partition: pli-c
+  model_path: /scratch/gpfs/PLI/models/Qwen3.5-27B
+  tensor_parallel: 1
+  tool_parser: qwen3_coder
+  max_model_len: 65536
+  runtime: 360
+  vllm_extra: ["--enable-auto-tool-choice", "--reasoning-parser", "qwen3"]   # thinking on: reasoning must be split off
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: chat
+  min_fraction: 0.85                                                   # 54 GB bf16 weights on one 80 GB card
+
+qwen3.8-27b:
+  <<: *defaults
+  partition: pli-c
+  model_path: /scratch/gpfs/PLI/models/Qwen3.8-27B/snapshots/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0   # hub-cache layout
+  tensor_parallel: 1
+  tool_parser: qwen3_coder                                             # config model_type is qwen3_5; same dialect, verify on first serve
+  max_model_len: 65536
+  runtime: 360
+  vllm_extra: ["--enable-auto-tool-choice", "--reasoning-parser", "qwen3"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: chat
+  min_fraction: 0.85
+
+qwen3.8-27b-low:   # same weights; the campaign sends reasoning_effort=low through MODEL_DIALS (2026-09-17)
+  <<: *defaults
+  partition: pli-c
+  model_path: /scratch/gpfs/PLI/models/Qwen3.8-27B/snapshots/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0   # hub-cache layout
+  tensor_parallel: 1
+  tool_parser: qwen3_coder                                             # config model_type is qwen3_5; same dialect, verify on first serve
+  max_model_len: 65536
+  runtime: 360
+  vllm_extra: ["--enable-auto-tool-choice", "--reasoning-parser", "qwen3"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: chat
+  min_fraction: 0.85
+
+glm-4.7-flash:
+  <<: *defaults
+  partition: pli-c
+  model_path: /scratch/gpfs/PLI/models/GLM-4.7-Flash
+  tensor_parallel: 1
+  tool_parser: glm47
+  max_model_len: 65536
+  runtime: 360
+  vllm_extra: ["--enable-auto-tool-choice", "--reasoning-parser", "glm45"]
+  venv: ${della_user_scratch}/venvs/vllm-nightly
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: chat
+  min_fraction: 0.85                                                   # 60 GB bf16 MoE weights on one card
+
+# GLM-5.3-Flash (320B-A18B MoE, native FP8, 62 shards, 306 GB) in the PLI store. Its glm5next model reached vLLM's
+# main after the 0.29.0 release branch was cut (PR 53906, merged 2026-09-03; the tagged 0.29.0 wheel lacks it), so
+# it serves from venvs/vllm-glm53, built 2026-09-15 from the nightly wheel 0.29.1rc1.dev157+g35dc27307 (torch 2.13
+# cu129, flashinfer 0.6.18). venvs/vllm-029 (the tagged 0.29.0) stays for the rest of the zoo. TP4 on H100 per the vLLM recipe (FP8 weights alone are ~306 GiB; 4 x 80 GB holds them
+# with a modest cache). Parsers per the recipe: glm47 tool dialect, glm45 reasoning. MTP speculation left off.
+glm-5.3-flash:
+  <<: *defaults
+  partition: ailab               # H200 (141 GB): 306 GB of FP8 weights over four H100s left 222 MiB free (job 13951116); TP4 on H200 leaves ~60 GB a card
+  model_path: /scratch/gpfs/PLI/models/GLM-5.3-Flash
+  tensor_parallel: 4
+  tool_parser: glm47
+  max_model_len: 65536
+  runtime: 360
+  mem_mb: 256000
+  cpus_per_task: 32
+  # serve_target does NOT pass --tensor-parallel-size (gpu() reads tensor_parallel only for the SLURM shape), so the
+  # flag rides in vllm_extra; without it the 2026-09-15 smoke loaded 306 GB onto one card and died at 4.5 GB free.
+  vllm_extra: ["--tensor-parallel-size", "4", "--enable-auto-tool-choice", "--reasoning-parser", "glm45"]
+  venv: ${della_user_scratch}/venvs/vllm-glm53
+  env: {FLASHINFER_DISABLE_VERSION_CHECK: "1"}
+  kind: chat
+  min_fraction: 0.92

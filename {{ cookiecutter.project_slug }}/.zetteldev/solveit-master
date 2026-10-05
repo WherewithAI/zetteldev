@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# solveit-master: make sure ONE multiplexed ssh connection to the SolveIt instance is alive, and that the forward every
+# client rides, laptop:5001 -> the instance's own localhost:5001 (where the SolveIt server listens), is up on it.
+#
+# The forward used to be opened by hand (`ssh -fN -L 5001:localhost:5001 solveit`) and lived as long as the shell that
+# opened it; a resumed session found nothing on 5001 and every `sicx` call failing. Now the control master holds it,
+# and this script re-arms it whenever a client is about to need it: the `sicx` recipe and `solveit-sync` call it first.
+# Exit 0 when the forward is live (or was just started), 1 when it cannot be.
+#   solveit-master            # ensure; prints nothing when already live
+#   solveit-master --status   # report without starting anything
+set -uo pipefail
+HOST="${SOLVEIT_HOST:-solveit}"; PORT="${SOLVEIT_PORT:-5001}"
+status_only=0; [[ "${1:-}" == "--status" ]] && status_only=1
+up() { ss -ltn "sport = :$PORT" 2>/dev/null | grep -q ":$PORT"; }
+if [[ $status_only = 1 ]]; then
+    ssh -O check "$HOST" >/dev/null 2>&1 && echo "$HOST: master live" || echo "$HOST: no master"
+    up && echo "forward $PORT: up" || echo "forward $PORT: down"
+    exit 0
+fi
+if ! ssh -O check "$HOST" >/dev/null 2>&1; then
+    sock="$(ssh -G "$HOST" | awk '/^controlpath /{print $2}')"; [[ -S "$sock" ]] && rm -f "$sock"   # a dead master's socket disables multiplexing for every later call
+    ssh -MNf -o ConnectTimeout=25 -o BatchMode=yes -o RequestTTY=no "$HOST" 2>/dev/null \
+        && echo "solveit-master: started master for $HOST" \
+        || { echo "solveit-master: could not start a master for $HOST (instance down, or key not loaded?)" >&2; exit 1; }
+fi
+if ! up; then
+    ssh -O forward -L "$PORT:localhost:$PORT" "$HOST" >/dev/null 2>&1 || { echo "solveit-master: the master is live but the forward of $PORT could not be opened" >&2; exit 1; }
+    for i in 1 2 3 4 5; do up && break; sleep 0.5; done
+    up && echo "solveit-master: forwarded localhost:$PORT to the instance's SolveIt server" || { echo "solveit-master: forward of $PORT did not come up" >&2; exit 1; }
+fi
+exit 0

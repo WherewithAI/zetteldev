@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# della-master: make sure ONE multiplexed ssh connection to Della is alive, and start it if not.
+#
+# The gateway (tigressgateway) counts new TCP handshakes on port 22 and drops an address that opens too many;
+# on 2026-09-23 four hours of 30-second polls from watchers whose control master had died (every poll a fresh
+# handshake) got Athomia's address blocked for the evening. With a live master every ssh call, from every
+# session, rides one connection, and the gateway sees nothing. Call this before any ssh to Della; every
+# wrapper in .zetteldev does. Exit 0 when a master is live (or was just started), 1 when it cannot be started.
+#   della-master            # ensure; prints nothing when already live
+#   della-master --status   # report each host's master without starting one
+set -uo pipefail
+HOSTS=(tigressgateway della)
+status_only=0; [[ "${1:-}" == "--status" ]] && status_only=1
+rc=0
+for h in "${HOSTS[@]}"; do
+    if ssh -O check "$h" >/dev/null 2>&1; then
+        [[ $status_only = 1 ]] && echo "$h: master live"
+        continue
+    fi
+    if [[ $status_only = 1 ]]; then echo "$h: no master"; rc=1; continue; fi
+    sock="$(ssh -G "$h" | awk '/^controlpath /{print $2}')"; [[ -S "$sock" ]] && rm -f "$sock"   # a dead master leaves its socket behind and every later call then "disables multiplexing"
+    if ssh -MNf -o ConnectTimeout=25 -o BatchMode=yes -o RequestTTY=no "$h" 2>/dev/null; then
+        echo "della-master: started master for $h"
+    else
+        if ssh -o ConnectTimeout=25 -o BatchMode=yes -o RequestTTY=no "$h" true 2>&1 | grep -q "keyboard-interactive"; then
+            echo "della-master: $h accepts the key but then wants Duo (keyboard-interactive); start the master once by hand in a terminal:  ssh -MNf $h" >&2
+        else
+            echo "della-master: could not start a master for $h (gateway unreachable or blocked?)" >&2
+        fi
+        rc=1; break   # della rides the gateway's master; no point trying it when the gateway failed
+    fi
+done
+# The DVC forward (2026-10-01): DVC's own ssh client cannot pass the gateway (the agent key is refused there and the passphrased
+# id_rsa cannot be read), so its `della` remote is ssh://localhost:2222, a port forwarded to Della's sshd over this master. Every
+# dvc call then rides the one connection too. Re-armed here because a forward dies with its master.
+if [[ $status_only = 0 && $rc = 0 ]] && ! ss -ltn "sport = :2222" 2>/dev/null | grep -q 2222; then
+    ssh -O forward -L 2222:127.0.0.1:22 della >/dev/null 2>&1 && echo "della-master: forwarded localhost:2222 to Della's sshd for dvc"
+fi
+[[ $status_only = 1 ]] && { ss -ltn "sport = :2222" 2>/dev/null | grep -q 2222 && echo "dvc forward 2222: up" || echo "dvc forward 2222: down"; }
+exit $rc

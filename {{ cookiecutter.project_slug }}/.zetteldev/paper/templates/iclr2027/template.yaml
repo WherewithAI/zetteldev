@@ -1,0 +1,3 @@
+name: iclr2027
+source: https://github.com/ICLR/Master-Template/raw/master/iclr2027.zip
+main_tex: iclr2027_conference.tex

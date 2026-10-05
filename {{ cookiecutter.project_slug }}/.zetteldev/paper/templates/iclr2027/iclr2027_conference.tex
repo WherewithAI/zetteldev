@@ -1,0 +1,102 @@
+\documentclass{article} % For LaTeX2e
+\usepackage{iclr2027_conference,times}
+
+% Optional math commands from https://github.com/goodfeli/dlbook_notation.
+\input{math_commands.tex}
+
+\usepackage{hyperref}
+\usepackage{url}
+
+% --- Packages the Obsidian → Overleaf bridge's generated body relies on. ---
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{graphicx}       % \includegraphics
+\graphicspath{{figures/}}   % resolve figure filenames under figures/
+\usepackage{float}          % `[H]` float option (Quarto emits these)
+\usepackage{wrapfig}        % \begin{wrapfigure} for side-anchored figures
+\usepackage{subcaption}     % \subcaption{} inside layout-ncol figure groups
+\usepackage{longtable}      % multi-page tables (Quarto emits these for md tables)
+\usepackage{amsmath}        % aligned, align*, etc.
+\usepackage{amssymb}        % \mathbb, \mathcal variants
+\usepackage{amsthm}         % theorem environments
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{algorithm}      % floating algorithm environment (```pseudo``` fences)
+\usepackage{algpseudocode}  % \State, \For, \Function, ... inside it
+% `\To` belongs to the older `algorithmic` package; algpseudocode has no
+% such macro, but it reads naturally in a \For and authors reach for it.
+\providecommand{\To}{\textbf{to}\ }
+\usepackage{marginnote}   % margin notes that are legal inside float captions
+\usepackage{tikz}           % \begin{tikzpicture} blocks emitted from md ```tikz``` fences
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{conjecture}{Conjecture}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{example}{Example}
+\newtheorem{exercise}{Exercise}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+\theoremstyle{plain}
+
+% Pandoc-emitted helper for tight bulleted lists (lives in pandoc's standalone
+% template, which we strip — provide a fallback so the body compiles).
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% Sidenotes
+\DeclareRobustCommand{\snKincaid}[1]{\textcolor{green}{${\leftarrow}\hspace{-3pt}{\bullet}$}\marginnote{\textcolor{brown}{${\leftarrow}\hspace{-3pt}{\bullet}$}{\textcolor{green}{  {\scriptsize{Kincaid: #1}}}}}}
+\DeclareRobustCommand{\snMax}[1]{\textcolor{blue}{${\leftarrow}\hspace{-3pt}{\bullet}$}\marginnote{\textcolor{brown}{${\leftarrow}\hspace{-3pt}{\bullet}$}{\textcolor{blue}{  {\scriptsize{Max: #1}}}}}}
+\DeclareRobustCommand{\snZeyu}[1]{\textcolor{purple}{${\leftarrow}\hspace{-3pt}{\bullet}$}\marginnote{\textcolor{brown}{${\leftarrow}\hspace{-3pt}{\bullet}$}{\textcolor{purple}{  {\scriptsize{Zeyu: #1}}}}}}
+\DeclareRobustCommand{\snBoyi}[1]{\textcolor{orange}{${\leftarrow}\hspace{-3pt}{\bullet}$}\marginnote{\textcolor{brown}{${\leftarrow}\hspace{-3pt}{\bullet}$}{\textcolor{orange}{  {\scriptsize{Boyi: #1}}}}}}
+\DeclareRobustCommand{\peter}[1]{\textcolor{red}{${\leftarrow}\hspace{-3pt}{\bullet}$}\marginnote{\textcolor{brown}{${\leftarrow}\hspace{-3pt}{\bullet}$}{\textcolor{red}{  {\scriptsize{Peter: #1}}}}}}
+\DeclareRobustCommand{\snDilip}[1]{\textcolor{teal}{${\leftarrow}\hspace{-3pt}{\bullet}$}\marginnote{\textcolor{brown}{${\leftarrow}\hspace{-3pt}{\bullet}$}{\textcolor{teal}{  {\scriptsize{Dilip: #1}}}}}}
+
+
+\title{BODY_TITLE}
+
+% Authors must not appear in the submitted version. They should be hidden
+% as long as the \iclrfinalcopy macro remains commented out below.
+\author{BODY_AUTHOR}
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+
+%\iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+
+\begin{document}
+
+\maketitle
+
+% <<< BODY BEGIN - don't edit this comment or you'll break Kincaid's Obsidian-Overleaf workflow >>>
+% <<< BODY END - don't edit this comment or you'll break Kincaid's Obsidian-Overleaf workflow >>>
+
+
+% ICLR 2027 requires these three statements. Author them here, not in the md.
+\subsection*{AI use statement}
+
+TODO
+
+\subsection*{Ethics statement}
+
+TODO
+
+\subsection*{Reproducibility statement}
+
+TODO
+
+
+\bibliography{refs}
+\bibliographystyle{iclr2027_conference}
+
+\appendix
+
+% <<< APPENDIX BEGIN - don't edit this comment or you'll break Kincaid's Obsidian-Overleaf workflow >>>
+% <<< APPENDIX END - don't edit this comment or you'll break Kincaid's Obsidian-Overleaf workflow >>>
+
+\end{document}

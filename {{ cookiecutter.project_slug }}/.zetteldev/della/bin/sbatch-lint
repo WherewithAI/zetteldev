@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Thin wrapper over zetteldev.della.sbatch_lint, where the rules live.
+
+Loaded by path rather than by import, so the lint runs from a bare python3 on the
+Della login node, where the project's venv may not be on sys.path.
+"""
+import importlib.util
+import sys
+from pathlib import Path
+
+module_path = Path(__file__).resolve().parents[1] / "sbatch_lint.py"
+spec = importlib.util.spec_from_file_location("sbatch_lint", module_path)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module  # dataclasses resolves annotations through sys.modules
+spec.loader.exec_module(module)
+
+sys.exit(module.main(sys.argv[1:]))
