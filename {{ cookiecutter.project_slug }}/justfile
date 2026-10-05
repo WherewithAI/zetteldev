@@ -120,31 +120,16 @@ sync-from-cloud:
     python3 .zetteldev/sync_cloud_data.py sync-from-cloud
 
 
-# === Zetteldev Container ===
+# === Zetteldev Tooling ===
 
 # Update zetteldev assets
 zdev-update:
     bash .zetteldev/update_zetteldev_assets.sh
 
-# Start a shell in the zdev container
-zdev-shell:
-    bash .zetteldev/zdev-container.sh shell
 
-# Start Claude in the zdev container
-zdev-claude:
-    bash .zetteldev/zdev-container.sh claude
 
-# Start Codex in the zdev container
-zdev-codex:
-    bash .zetteldev/zdev-container.sh codex
 
-# Stop the zdev shell container
-zdev-stop-shell:
-    bash .zetteldev/zdev-container.sh stop shell
 
-# Remove the zdev shell container
-zdev-rm-shell:
-    bash .zetteldev/zdev-container.sh rm shell
 
 
 # === Submission Pre-flight ===
