@@ -37,7 +37,6 @@ dependencies = [
     "great-tables>=0.17",
     "snakemake>=9",
     "zetteldev",                 # the tooling in .zetteldev, an editable package (see [tool.uv.sources])
-])
 ]
 
 [build-system]
