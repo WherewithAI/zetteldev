@@ -113,7 +113,7 @@ def check_repo(s):
 def check_workstation(s):
     rc, cron = sh(["crontab", "-l"])
     for needle, what in [("solveit_sync.sh", "the notebook sync"), ("data sync", "the data cycle")]:
-        ok("cron", f"{what} is scheduled") if needle in cron else fail("cron", f"no cron line for {what}", "THE WORKSTATION: the cron lines")
+        ok("cron", f"{what} is scheduled for this checkout") if any(needle in l and str(ROOT) in l for l in cron.splitlines()) else fail("cron", f"no cron line for {what}", "THE WORKSTATION: the cron lines")
     if "SSH_AUTH_SOCK" not in cron: warn("cron", "cron lines without SSH_AUTH_SOCK", "THE WORKSTATION: cron has no agent; set it on the line")
     rc, ps = sh(["pgrep", "-f", "della-status run"])
     st = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "della" / "status.json"
