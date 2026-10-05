@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# della-submit — submit an sbatch script (optionally an array) through a GATE, and by default WAIT for it, so a
+# Snakemake rule can own a SLURM job it did not write. Run it on the Della login node.
+#
+#   della-submit [--array 0-4] [--sentinel path] [--env KEY=VAL ...] [--time HH:MM:SS] [--no-wait] [--allow-dirty]
+#                [--skip-preflight] script.sbatch [sbatch args...]
+#
+# --time overrides the script's #SBATCH --time. Test jobs should ask for an hour, not the six the scripts declare:
+# a shorter request schedules sooner, and a smoke that needs more than an hour is not a smoke. --gpus N overrides
+# the script's --gres (gpu:N), for a smaller layout than the script's default.
+#
+# The gate, in order (each failure refuses the submission, nothing burns):
+#   1. The checkout is clean and at origin's tip of its branch (a fast-forward pull is attempted first). What the
+#      job runs is therefore a pushed commit, and its hash is recorded: REPO_COMMIT in the job's environment,
+#      `--comment=commit:<hash>` on the job, and a line in the sentinel.
+#   2. The script passes sbatch-lint.
+#   3. Every `# preflight: <command>` line in the script runs here, in the script's directory, with the --env
+#      variables exported and PREFLIGHT=1 set, under a 15-minute timeout. A launch script's dry-run mode belongs
+#      on such a line: an unbound variable or a bad override then fails in seconds, not after hours in the queue.
+#   4. sbatch runs with a sanitised environment (HOME, USER, PATH, SHELL, LANG, TERM, SLURM_*), so a variable
+#      exported in a login shell for a test (CFG_ONLY=1, say) can never leak into the job. Pass what the job
+#      needs with --env.
+#
+# Exit 0 when every task of the job ends COMPLETED; 1 otherwise (the states are printed). With --no-wait the job
+# id is printed and the script returns as soon as the job is queued. The sentinel, when given, is written only
+# on success and holds the job id, commit, states and elapsed time, so a Snakefile can name it as the rule's
+# output and rerun only what did not finish.
+set -uo pipefail
+ARRAY=""; SENTINEL=""; ENVS=(); WAIT=1; ALLOW_DIRTY=0; PREFLIGHT=1; TIME=""; GRES=""; DVC_PATHS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --array) ARRAY="$2"; shift 2 ;;
+    --sentinel) SENTINEL="$2"; shift 2 ;;
+    --env) ENVS+=("$2"); shift 2 ;;
+    --dvc) DVC_PATHS+=("$2"); shift 2 ;;      # an output path (repo-relative) to track with DVC when the job has ended, whatever its state
+    --time) TIME="$2"; shift 2 ;;
+    --gpus) GRES="$2"; shift 2 ;;
+    --no-wait) WAIT=0; shift ;;
+    --allow-dirty) ALLOW_DIRTY=1; shift ;;
+    --skip-preflight) PREFLIGHT=0; shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+SCRIPT="${1:?usage: della-submit [--array A-B] [--sentinel path] [--env K=V] [--no-wait] script.sbatch [sbatch args]}"; shift
+[[ -r "$SCRIPT" ]] || { echo "della-submit: no such script: $SCRIPT" >&2; exit 1; }
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(git -C "$(dirname "$SCRIPT")" rev-parse --show-toplevel 2>/dev/null)" || { echo "della-submit: $SCRIPT is not inside a git checkout" >&2; exit 1; }
+
+# --- 1. the checkout ---------------------------------------------------------------------------------------------
+BRANCH="$(git -C "$REPO" branch --show-current)"
+if [[ -n "$(git -C "$REPO" status --porcelain --untracked-files=no --ignore-submodules)" ]]; then
+  if [[ "$ALLOW_DIRTY" -eq 1 ]]; then echo "della-submit: WARNING: submitting from a dirty checkout (--allow-dirty)" >&2
+  else echo "della-submit: the checkout at $REPO has uncommitted changes; commit and push them (or --allow-dirty):" >&2; git -C "$REPO" status --short --untracked-files=no --ignore-submodules >&2; exit 1; fi
+fi
+git -C "$REPO" fetch -q origin "$BRANCH" 2>/dev/null && git -C "$REPO" pull -q --ff-only origin "$BRANCH" 2>/dev/null || true
+LOCAL="$(git -C "$REPO" rev-parse HEAD)"; REMOTE="$(git -C "$REPO" rev-parse "origin/$BRANCH" 2>/dev/null || echo none)"
+if [[ "$LOCAL" != "$REMOTE" && "$ALLOW_DIRTY" -eq 0 ]]; then
+  echo "della-submit: HEAD ($LOCAL) is not origin/$BRANCH ($REMOTE); push from the source machine, or --allow-dirty" >&2; exit 1
+fi
+COMMIT="${LOCAL:0:12}"
+
+# --- 2. the lint --------------------------------------------------------------------------------------------------
+if [[ -x "$BIN/sbatch-lint" ]]; then
+  "$BIN/sbatch-lint" "$SCRIPT" || { echo "della-submit: sbatch-lint found errors in $SCRIPT; not submitted" >&2; exit 1; }
+fi
+
+# --- 3. the preflight lines --------------------------------------------------------------------------------------
+for kv in "${ENVS[@]:-}"; do [[ -n "$kv" ]] && export "$kv"; done
+if [[ "$PREFLIGHT" -eq 1 ]]; then
+  while IFS= read -r line; do
+    cmd="${line#*preflight:}"; cmd="${cmd# }"
+    echo "della-submit: preflight: $cmd"
+    ( cd "$(dirname "$SCRIPT")" && PREFLIGHT=1 REPO_COMMIT="$COMMIT" timeout 900 bash -c "$cmd" ) || { echo "della-submit: preflight failed; not submitted" >&2; exit 1; }
+  done < <(grep -E '^# ?preflight:' "$SCRIPT")
+fi
+
+# --- 4. the submission, from a sanitised environment --------------------------------------------------------------
+KEEP=(HOME="$HOME" USER="$USER" PATH="$PATH" SHELL="${SHELL:-/bin/bash}" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" LOGNAME="${LOGNAME:-$USER}")
+while IFS='=' read -r k v; do [[ "$k" == SLURM_* ]] && KEEP+=("$k=$v"); done < <(env)
+EXPORTS="ALL,REPO_COMMIT=$COMMIT"; for kv in "${ENVS[@]:-}"; do [[ -n "$kv" ]] && EXPORTS="$EXPORTS,$kv"; done
+# a script that names no account charges the configured one (della_account), so an example copied from the template submits as is
+ACCOUNT=(); grep -qE "^#SBATCH\s+(--account|-A)" "$SCRIPT" || ACCOUNT=(--account="$(python3 "$REPO/.zetteldev/config.py" della_account)")
+OUT=$(env -i "${KEEP[@]}" sbatch --parsable "${ACCOUNT[@]}" --export="$EXPORTS" --comment="commit:$COMMIT" ${ARRAY:+--array=$ARRAY} ${TIME:+--time=$TIME} ${GRES:+--gres=gpu:$GRES} "$@" "$SCRIPT") || { echo "della-submit: sbatch failed: $OUT" >&2; exit 1; }
+JOB="${OUT%%;*}"; echo "della-submit: job $JOB ($SCRIPT${ARRAY:+ array $ARRAY}${TIME:+, --time=$TIME}) at commit $COMMIT"
+# --- 5. the DVC follow-up (2026-10-01) ------------------------------------------------------------------------------
+# With --dvc PATH … a one-hour CPU job queues behind this one (afterany: whatever its end state) and tracks those paths with
+# `dvc add`; the pointer files it leaves are committed by the login node's status tick. Local work on GPFS, so an airgapped
+# node will do, and the job itself needs no line added for it.
+if [[ ${#DVC_PATHS[@]} -gt 0 ]]; then
+  FOLLOW="$REPO/.zetteldev/della/scripts/dvc_add_after.sbatch"
+  FOUT=$(env -i "${KEEP[@]}" sbatch --parsable --dependency="afterany:$JOB" --output="$(python3 "$REPO/.zetteldev/config.py" della_user_scratch)/dvc_add_%j.log" --export="ALL,REPO_DIR=$REPO,DVC_PATHS=${DVC_PATHS[*]}" "$FOLLOW") \
+    && echo "della-submit: dvc follow-up ${FOUT%%;*} tracks ${DVC_PATHS[*]} after $JOB" \
+    || echo "della-submit: WARNING: the dvc follow-up could not be queued: $FOUT" >&2
+fi
+[[ "$WAIT" -eq 1 ]] || { echo "$JOB"; exit 0; }
+T0=$(date +%s)
+while squeue -j "$JOB" -h -o %T 2>/dev/null | grep -q .; do sleep 60; done
+sleep 20                                   # let sacct settle
+STATES=$(sacct -j "$JOB" -X -n -o JobID,State,Elapsed -P | grep -v '^$')
+echo "$STATES"
+BAD=$(echo "$STATES" | awk -F'|' '$2 != "COMPLETED" {print}' | wc -l)
+ELAPSED=$(( $(date +%s) - T0 ))
+if [[ "$BAD" -eq 0 ]]; then
+  [[ -n "$SENTINEL" ]] && { mkdir -p "$(dirname "$SENTINEL")"; { echo "job $JOB"; echo "script $SCRIPT"; echo "commit $COMMIT"; echo "array ${ARRAY:-none}"; echo "waited ${ELAPSED}s"; echo "$STATES"; } > "$SENTINEL"; }
+  echo "della-submit: job $JOB completed in ${ELAPSED}s"; exit 0
+fi
+echo "della-submit: job $JOB has $BAD task(s) not COMPLETED; nothing written to the sentinel" >&2; exit 1

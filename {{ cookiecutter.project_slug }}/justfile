@@ -12,11 +12,11 @@ test:
 
 # Install ipykernel for this project
 postinstall:
-    uv run python -m ipykernel install --user --name "{{ cookiecutter.project_slug }}-zetteldev"
+    uv run python -m ipykernel install --user --name "$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")-zetteldev"
 
 # Verify the project module imports correctly
 test-import:
-    uv run python -c "import {{ cookiecutter.project_slug }}"
+    uv run python -c "import $(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")"
 
 # === Notebooks ===
 
@@ -28,61 +28,97 @@ notebooks:
 cuda-jupyter:
     uv run --group notebooks jupyter notebook
 
-# === Marimo ===
-
-# Launch Marimo in edit mode
-marimo-edit:
-    uv run --group marimo marimo edit --watch --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo
-
-# Launch Marimo in run mode
-marimo-run:
-    uv run --group marimo marimo run --headless --port 8642 --token-password themediumisthemessage --proxy athomia.moose-walleye.ts.net --base-url /marimo
 
 # === NBdev ===
 
+export QUARTO_PYTHON := justfile_directory() / ".venv/bin/python"
+
+# Render a Jupyter notebook to PDF (strips NBDev directives first)
+render-notebook input output:
+    python3 .zetteldev/render_notebook.py {{input}} {{output}}
+
 # Export notebooks to Python modules
 nbsync:
-    uv run --group nbdev nbdev_export
+    uv run nbdev-export
 
 # Clean notebook metadata
 nbclean:
-    uv run --group nbdev nbdev_clean
+    uv run nbdev-clean
+
+nbprep:
+    uv run nbdev-prepare
 
 # Update notebooks from Python modules
 pysync:
-    uv run --group nbdev nbdev_update
+    uv run nbdev-update
 
 # Generate documentation
 docmaker:
-    uv run --group nbdev nbdev_docs
+    uv run nbdev-docs
+
+# README.md from experiments/index.ipynb alone. `nbdev-readme` first preprocesses EVERY file under nbs_path (the whole experiments
+# tree, processed_data and playpen included: ten minutes of copying) and dies on any notebook whose cells fail the filter pass
+# (2026-09-21: exp18's `from paper2solveit import *`). This renders the one notebook that matters, in a scratch directory.
+readme:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    d=$(mktemp -d); cp experiments/index.ipynb "$d/"; (cd "$d" && quarto render index.ipynb -o README.md -t gfm --no-execute --quiet)
+    cp "$d/README.md" README.md; rm -rf "$d"; echo "README.md rendered from experiments/index.ipynb ($(wc -l < README.md) lines)"
 
 # Render notebooks to zettels (markdown)
 zettelmaker:
-    uv run --group nbdev quarto render nbs/experiments --to gfm --no-execute --output-dir ../zettels --profile zettels
+    uv run quarto render nbs/experiments --to gfm --no-execute --output-dir ../zettels --profile zettels
 
 # === Experiments ===
 
 # Run snakemake (pass args like: just snakemake all)
 snakemake *args:
-    uv run snakemake {% raw %}{{args}}{% endraw %}
+    uv run snakemake {{args}}
+
+# Sync the default Snakemake workflow-profile symlink into every experiment
+sync-smk-profile *args:
+    python3 .zetteldev/sync_smk_profile.py {{args}}
 
 # Create a new experiment
-create-experiment:
-    uv run python .zetteldev/create_experiment.py
+create-experiment *args:
+    uv run python .zetteldev/create_experiment.py {{args}}
 
+
+# Regenerate AGENTS.md here and ~/.codex/AGENTS.md from their CLAUDE.md files, inlining the @ imports Codex cannot follow
+agents-md:
+    python3 .zetteldev/agents/build_agents_md.py
+    python3 .zetteldev/agents/build_agents_md.py ~/.claude/CLAUDE.md ~/.codex/AGENTS.md
 # Run an experiment
 run-experiment:
-    uv run python .zetteldev/run_experiment.py
+    python3 .zetteldev/run_experiment.py
+
+# === Claude Code ===
+
+# Start Claude with experiment-specific task list (auto-detects from cwd)
+# Pass any args to claude, e.g.: just claude --resume
+[no-cd]
+claude *args:
+    #!/usr/bin/env bash
+    invocation_dir="{{invocation_directory()}}"
+    if [[ "$invocation_dir" =~ experiments/([^/]+) ]]; then
+        task_id="$(basename "$PWD")-${BASH_REMATCH[1]}"
+        echo "Task list: $task_id"
+        CLAUDE_CODE_TASK_LIST_ID="$task_id" claude {{args}}
+    else
+        echo "Starting Claude without persistent task list (not in experiment dir)"
+        claude --cwd "$invocation_dir" --dangerously-skip-permissions {{args}}
+    fi
 
 # === Cloud Sync ===
 
 # Sync data to cloud storage
 sync-to-cloud:
-    uv run python .zetteldev/sync_cloud_data.py sync-to-cloud
+    python3 .zetteldev/sync_cloud_data.py sync-to-cloud
 
 # Sync data from cloud storage
 sync-from-cloud:
-    uv run python .zetteldev/sync_cloud_data.py sync-from-cloud
+    python3 .zetteldev/sync_cloud_data.py sync-from-cloud
+
 
 # === Zetteldev Container ===
 
@@ -110,6 +146,137 @@ zdev-stop-shell:
 zdev-rm-shell:
     bash .zetteldev/zdev-container.sh rm shell
 
+
+# === Submission Pre-flight ===
+
+# Lint sbatch scripts against the invariants we bought with GPU-hours
+# (lonely embedder, oversubscribed card, thin keep-alive, long walltime, ...).
+# No args lints every tracked *.sbatch; exit 1 if any ERROR is found.
+#   just preflight
+#   just preflight experiments/42-stuckness-modeling/scripts/slurm/counsel.sbatch
+preflight *args:
+    .zetteldev/della/bin/sbatch-lint {{args}}
+
+# Submit one sbatch on Della through the gate (clean pushed tree, lint, `# preflight:` lines, sanitised env), from here:
+#   just della-sbatch experiments/35-rl-forecasting/scripts/slurm/train_selector.sbatch --time 01:00:00 --env STEPS=1 --env BATCH=2
+# Test jobs: --time 01:00:00 (schedules sooner than the six hours the scripts declare for real runs).
+# Since 2026-09-22 this is the one-job form of della-sbatch-bg (below): it pushes once with a timeout, hands the submission to
+# Della, and returns in seconds; the job id lands in .zetteldev/della/batches/<label>.log (`just della-batch-log <label>`), where
+# the label is the script's basename and the minute of submission. Nothing in the foreground past a minute.
+della-sbatch script *args:
+    #!/usr/bin/env bash
+    just della-sbatch-bg-one "$(basename "{{script}}" .sbatch)-$(date +%m%d%H%M)" "{{script}}" {{args}}
+
+# The same gate, in the background, for one job or many (the author's standing policy, 2026-09-22: nothing in the foreground
+# past a minute). One push with a timeout, then the batch file goes to Della where della-submit-batch queues each line serially
+# and appends `<label>|<job id>|ok` (or `|-|FAILED <reason>`) to the log as it lands, ending with `BATCH_DONE queued/total`.
+# Returns at once with the log path; tail the log (a Monitor) for the ids.
+#   just della-sbatch-bg <batch file>          batch lines: <label>|<della-submit args, script path included>
+#   just della-sbatch-bg-one <label> <script> [args...]   the one-job form, written to a batch of one
+# Logs live under .zetteldev/della/batches/<batch name>.log (gitignored); the pull's stderr and each label's gate stderr beside it.
+della-sbatch-bg batch:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    name="$(basename "{{batch}}" .txt)"; log=".zetteldev/della/batches/$name.log"; mkdir -p .zetteldev/della/batches
+    timeout 60 git push -q origin "$(git branch --show-current)" || { echo "della-sbatch-bg: push failed or timed out; nothing submitted" >&2; exit 1; }
+    scp -q "{{batch}}" della:/tmp/della_batch_$name.txt
+    ssh -o ConnectTimeout=20 "$(python3 .zetteldev/config.py della_host)" "cd $(python3 .zetteldev/config.py della_repo) && git pull -q --ff-only origin $(git branch --show-current) && mkdir -p .zetteldev/della/batches && (nohup .zetteldev/della/bin/della-submit-batch /tmp/della_batch_$name.txt $log >$log.nohup 2>&1 &)" </dev/null || { echo "della-sbatch-bg: could not start the batch on Della (pull or launch failed)" >&2; exit 1; }
+    echo "della-sbatch-bg: batch $name submitting on Della; ids land in della:$(python3 .zetteldev/config.py della_repo)/$log (tail it with just della-batch-log $name)"
+
+# Read a batch's log from Della (one call, no wait): the ids so far and BATCH_DONE when all are through.
+della-batch-log name:
+    ssh -o ConnectTimeout=20 "$(python3 .zetteldev/config.py della_host)" "cat $(python3 .zetteldev/config.py della_repo)/.zetteldev/della/batches/{{name}}.log 2>/dev/null || echo '(no log yet)'" </dev/null
+
+# One multiplexed ssh connection to Della for every caller (2026-09-23: the gateway blocked Athomia's address after hours of
+# 30-second polls whose control master had died, each poll a fresh handshake). Every Della wrapper calls this first.
+della-master *args:
+    bash .zetteldev/della/bin/della-master {{args}}
+
+# The one poller: `just della-status run` in a tmux window writes ~/.cache/della/status.json every five minutes (queue plus every
+# registered snippet); Monitors and driver wakes read the file and never open ssh themselves.
+#   just della-status add exp33_canon 'cd $(python3 .zetteldev/config.py della_repo)/experiments/33-*/processed_data/crosspolicy/canon && for d in *; do echo "$(ls $d | wc -l) $d"; done'
+#   just della-status show [NAME]        just della-status once
+[positional-arguments]
+della-status *args:
+    python3 .zetteldev/della/bin/della-status "$@"
+
+della-sbatch-bg-one label script *args:
+    #!/usr/bin/env bash
+    mkdir -p .zetteldev/della/batches; b=".zetteldev/della/batches/{{label}}.txt"; echo "{{label}}|{{args}} {{script}}" > "$b"; just della-sbatch-bg "$b"
+
+# === Cluster Monitoring ===
+
+# GPU dashboard for Della cluster (SSH from local machine)
+jobstats *args:
+    python3 .zetteldev/gpu_dashboard.py {{args}}
+
+# Game statistics for curvature compass experiments (interactive picker if no dir given)
+gamestats *args:
+    uv run python experiments/15-curvature-as-compass/scripts/gamestats.py {{args}}
+
+# === Figure Publishing ===
+
+# Publish a figure to Cloudflare R2 (returns a stable URL for Obsidian)
+# Usage:
+#   just publish-figure experiments/20-foo/figures/fig_bar.png   # single figure
+#   just publish-figure experiments/20-foo                       # all in experiment
+#   just publish-figure <path> --obsidian                        # markdown embed
+#   just publish-figure <path> --dry-run                         # preview
+publish-figure *args:
+    python3 .zetteldev/publish_figure.py {{args}}
+
+# Sync all changed figures across all experiments to R2
+publish-figures *args:
+    python3 .zetteldev/publish_figure.py --sync {{args}}
+
+# === Paper Sync (Obsidian ↔ Overleaf) ===
+# Canonical source is a single Workshop md file configured in papers/<slug>/paper.yaml.
+# Outbound (push-paper): md → tex + R2 figures → Overleaf. Inbound (pull-paper):
+# draft md patches from Overleaf edits into papers/<slug>/review/ for human acceptance.
+
+# Convert a PDF/arXiv URL to markdown in the current directory via Datalab Marker.
+mdify-paper url:
+    python3 .zetteldev/mdify_paper.py "{{url}}" --output-dir "{{invocation_directory()}}"
+
+# Scaffold a new paper dir and clone its Overleaf git repo (interactive)
+new-paper slug:
+    python3 .zetteldev/paper/sync.py new {{slug}}
+
+# Import a template zip (url or local path) into .zetteldev/paper/templates/<name>/
+import-paper-template name source:
+    python3 .zetteldev/paper/sync.py import-template {{name}} {{source}}
+
+# Copy a template's files into papers/<slug>/overleaf/ (non-destructive).
+# Slug omittable when only one paper exists: `just apply-paper-template <template>`.
+apply-paper-template *args:
+    python3 .zetteldev/paper/sync.py apply-template {{args}}
+
+# Render md → tex, fetch R2 figures, commit + push to Overleaf.
+# Slug omittable when only one paper exists.
+push-paper *args:
+    python3 .zetteldev/paper/sync.py push {{args}}
+
+# Preview outbound changes without committing
+paper-diff *args:
+    python3 .zetteldev/paper/sync.py diff {{args}}
+
+# Refresh only overleaf/figures/ from R2 (no tex regeneration)
+update-paper-figures *args:
+    python3 .zetteldev/paper/sync.py figures {{args}}
+
+# Pull Overleaf; LLM drafts md review patches into papers/<slug>/review/
+pull-paper *args:
+    python3 .zetteldev/paper/sync.py pull {{args}}
+
+# List drafted review patches awaiting acceptance
+paper-pending *args:
+    python3 .zetteldev/paper/sync.py pending {{args}}
+
+# Apply a drafted review patch to the source md.
+# Slug omittable when only one paper exists: `just paper-accept <patch_id>`.
+paper-accept *args:
+    python3 .zetteldev/paper/sync.py accept {{args}}
+
 # === Git Worktrees ===
 
 # Create a new git worktree
@@ -123,3 +290,101 @@ rug:
 # Lazygit
 lg:
     lazygit
+
+# === SolveIt from the terminal ===
+# The dialog is remembered in the nearest `.solveit-dialog` (write it with `just sicx use <dialog>`), the URL
+# defaults to the tunnel at localhost:5001, and every command runs from the directory you invoke it in.
+
+# The plain client with the dialog filled in:  just sic message.exec --id <id>
+[no-cd]
+sic *args:
+    SOLVEIT_DIALOG="${SOLVEIT_DIALOG:-$(cat .solveit-dialog 2>/dev/null || cat ../.solveit-dialog 2>/dev/null)}" sic {{args}}
+
+# Queue-safe run/add/edit/bootstrap/out/slim/status/stop/open:  just sicx run <id>
+[no-cd]
+sicx *args:
+    @bash {{justfile_directory()}}/.zetteldev/solveit-master
+    uv run --quiet --with solveit-client python {{justfile_directory()}}/.zetteldev/sicx.py {{args}}
+
+# One multiplexed ssh connection to the instance, and the laptop:5001 forward every client rides, re-armed when down:  just solveit-master [--status]
+solveit-master *args:
+    bash .zetteldev/solveit-master {{args}}
+# === Local Dask Cluster (Athomia) ===
+# A discoverable, self-healing Dask cluster on this box (Athomia). See zetteldev.cluster (renamed from zetteldev.dask on 2026-09-22: the old name shadowed the dask package).
+# Default launch is PRIVATE (loopback); reach it from elsewhere over an SSH tunnel
+# (zdask.connect("athomia")). Exposing the raw, unauthenticated port on the tailnet
+# is the separate, deliberate `dask-athomia-exposed`.
+
+# Usage (args pass through to `zetteldev.cluster up`):
+#   just dask-athomia                          # gpus=all, 2 workers (both 4090s visible)
+#   just dask-athomia --gpus pin               # one worker per card, GPU-resource tagged
+#   just dask-athomia --gpus none --workers 8  # CPU-only flood cluster
+
+# Launch/discover the Athomia cluster, bound privately to loopback (reach remotely via zdask.connect)
+dask-athomia *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    uv run python -m zetteldev.cluster up {{args}}
+    echo 'Private (loopback). From another machine: zdask.connect("athomia")'
+
+# Launch bound to the Tailscale IP — reachable by any tailnet device WITHOUT SSH auth (prefer dask-athomia)
+dask-athomia-exposed *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host=$(tailscale ip -4 2>/dev/null | head -1) || { echo "tailscale not up" >&2; exit 1; }
+    echo "⚠ Binding scheduler to $host (Tailscale) — UNAUTHENTICATED, trusts your whole tailnet"
+    uv run python -m zetteldev.cluster up --host "$host" {{args}}
+
+# Status of the Athomia Dask cluster (liveness, workers, dashboard)
+dask-status:
+    uv run python -c "from zetteldev import dask as z; import json; print(json.dumps(z.status(), indent=2))"
+
+# Tear down the Athomia Dask cluster
+dask-down:
+    uv run python -c "from zetteldev import dask as z; z.shutdown(); print('cluster down')"
+
+# === SolveIt git cycle (this machine is the source of truth; see .zetteldev/solveit_sync.sh) ===
+
+# Ahead/behind counts against SolveIt and origin, dirty paths on both sides, last sync
+solveit-status:
+    bash .zetteldev/solveit_sync.sh status
+
+# Commit SolveIt's dialog state, merge its branch here, push origin, fast-forward SolveIt (hourly via cron)
+solveit-sync:
+    bash .zetteldev/solveit_sync.sh sync
+
+# Export a dialog's #|export cells to the project module here, then commit the modules:  just solveit-export experiments/35-rl-forecasting/6-ee-trained-search-agent-tinker.ipynb
+solveit-export nb:
+    # secondary modules (`#|export other_mod`) are appended to, never rewritten, so seed each one afresh before exporting
+    for m in $(grep -oh "#|export [a-z_]*" {{nb}} | awk '{print $2}' | sort -u); do printf '__all__ = []\n' > $(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")/$m.py; done
+    uv run python -c "from nbdev.export import nb_export; nb_export('{{nb}}', '$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")')"
+    uv run python .zetteldev/nbsnake.py {{nb}}
+    git add $(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")/*.py; [ -d $(dirname {{nb}})/rules ] && git add $(dirname {{nb}})/rules; git commit -q -m "export {{nb}}" && git log --oneline -1
+
+# === Data: DVC with the cluster as the store (see the method's data section) ===
+
+# The data tier on DVC, Della the store (2026-10-01):  just data pull|status|sweep [exp ...|--all] [--add]  |  just data commit-pointers [--push]  |  just data sync
+# Lists: experiments/<exp>/.dvcpull (what notebooks read) and ~/.config/zetteldev/dvcpull.local (+path / -path, this machine only).
+data cmd *args:
+    uv run --quiet python .zetteldev/dvc_data.py {{cmd}} {{args}}
+
+# The old Hub small tier, pull only, for reading a historical snapshot (the dataset repo is to be deleted about 2026-11):
+#   just hugdata-small pull <exp ...>     files already under a DVC pointer are skipped, so a pull never overwrites tracked data
+hugdata-small cmd *args:
+    uv run --quiet python .zetteldev/hf_small.py {{cmd}} {{args}}
+
+# === Services on Della (registry: .zetteldev/services.yaml) ===
+
+# just service status | up <name> | tunnel <name> | down <name> | url <name>
+service *args:
+    uv run --quiet python .zetteldev/services.py {{args}}
+
+# === Experiment-scale computations: Snakemake on Della, driven from here ===
+
+# Sync code to Della and run a Snakemake target there under the Della profile, in a tmux window; tails the log.  just snake-della 35-rl-forecasting belief_trees
+snake-della exp target *args:
+    bash .zetteldev/della/bin/snake-della {{exp}} {{target}} {{args}}
+
+# The setup doctor: one line per item of the setup guide, with a verdict; `--here` skips the cluster and the instance
+doctor *args:
+    python3 .zetteldev/doctor.py {{args}}

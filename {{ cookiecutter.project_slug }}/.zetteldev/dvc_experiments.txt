@@ -1,0 +1,5 @@
+# Experiments whose processed_data is under DVC management: the sweep (`just data sweep --add`) tracks their untracked
+# entries once quiet, and the hourly cycles commit their pointers. An experiment joins by being listed here after its
+# existing directories have been added by hand (plan of 2026-10-01; the Hub's small tier migrated 2026-10-04).
+# Not listed on purpose: 34 and 35, whose processed_data on Della runs to terabytes of training dumps that an add would
+# hash on the login node; their bulk is tracked by CPU jobs (.zetteldev/della/scripts/dvc_add_after.sbatch) one directory at a time.

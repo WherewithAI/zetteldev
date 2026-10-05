@@ -74,7 +74,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-IFS=',' read -r -a ASSET_LIST <<< "${ZETTELDEV_ASSETS:-.zetteldev,.devcontainer,CLAUDE.md,AGENTS.md,infra/infra.md,gambols/gambols.md,experiments/experiments.md,infra,gambols,experiments}"
+IFS=',' read -r -a ASSET_LIST <<< "${ZETTELDEV_ASSETS:-.zetteldev,.devcontainer,.claude/settings.json,.claude/skills/quiz,tests/test_sbatch_lint.py,tests/test_della_registry.py,tests/test_sicx_apply.py,tests/test_solveit_guard.py}"
 
 require_cmd git
 
@@ -118,6 +118,8 @@ sync_directory() {
     if [[ "$CLEAN" == "yes" ]]; then
       rsync_opts+=(--delete)
     fi
+    # a repository's own registries and per-machine state are never overwritten by an update
+    rsync_opts+=(--exclude targets.yaml --exclude services.yaml --exclude dvc_experiments.txt --exclude dask/run --exclude della/batches --exclude __pycache__ --exclude "*.egg-info")
     rsync "${rsync_opts[@]}" "$source_dir/" "$dest_dir/"
   else
     # tar-based fallback preserves timestamps/permissions but cannot delete extras.
@@ -160,5 +162,11 @@ for asset in "${ASSET_LIST[@]}"; do
 done
 
 popd >/dev/null
+
+# AGENTS.md is a build product of this repository's CLAUDE.md with the packs inlined; a sync that changed a pack has left it stale
+if [[ -f "$REPO_ROOT/.zetteldev/agents/build_agents_md.py" && -f "$REPO_ROOT/CLAUDE.md" ]]; then
+  echo "Rebuilding AGENTS.md from CLAUDE.md and the packs"
+  (cd "$REPO_ROOT" && python3 .zetteldev/agents/build_agents_md.py)
+fi
 
 echo "Done. Remember to review and commit any changes."

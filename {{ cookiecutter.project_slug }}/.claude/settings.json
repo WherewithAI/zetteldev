@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.zetteldev/della/bin/sbatch-lint\" --hook 2>/dev/null || true",
+            "timeout": 15,
+            "statusMessage": "Della pre-flight lint"
+          }
+        ]
+      }
+    ]
+  }
+}

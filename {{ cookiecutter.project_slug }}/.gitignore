@@ -165,3 +165,17 @@ token
 
 # pixi environments
 .pixi/
+
+# Claude Code: the hook settings are the repository's; the personal file is not
+.claude/settings.local.json
+
+# processed_data is data, never tracked by git, except the DVC pointer files (*.dvc) and the .gitignore files DVC writes
+experiments/*/processed_data/**
+!experiments/*/processed_data/**/
+!experiments/*/processed_data/**/*.dvc
+!experiments/*/processed_data/**/.gitignore
+
+# per-machine state of the tooling
+.zetteldev/dask/run/
+.zetteldev/della/batches/
+.zetteldev/*.egg-info/

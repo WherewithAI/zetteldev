@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""della-status: one poller for everything on Della that anyone here wants to watch.
+
+Every Monitor, driver wake and loop used to open its own ssh to Della on its own cadence, and on 2026-09-23
+the gateway blocked the address for it (see della-master). Now ONE process polls, over the multiplexed
+connection, once every five minutes, and writes what it learned to a local file; watchers read the file
+(inotify or a plain read) and never touch the network.
+
+    della-status run [--interval 300]     the poller: loop forever (run it in a tmux window; idempotent per tick)
+    della-status once                     one tick, then exit (what `run` repeats)
+    della-status add NAME 'shell snippet' register a snippet to run on Della each tick (its stdout is kept)
+    della-status rm NAME                  forget a snippet
+    della-status list                     the registered snippets
+    della-status show [NAME]              the latest status: age, queue, and each snippet's output (or one)
+    della-status path                     where the status file lives
+
+Registered snippets live in ~/.config/della-status/watch.json; the status is ~/.cache/della/status.json, written
+atomically so a file watcher sees one event per tick:
+    {"ts": ..., "age_note": ..., "ok": true|false, "error": ..., "queue": [{"id","name","state","time","reason"}...],
+     "watch": {NAME: {"out": "...", "rc": 0}}}
+The queue is `squeue -u $USER` in full; a snippet is any bash, e.g.
+    della-status add exp33_canon 'cd ~/src/<repo>/experiments/33-*/processed_data/crosspolicy/canon && for d in *; do echo "$(ls $d | wc -l) $d"; done'
+"""
+import json, os, subprocess, sys, time
+from pathlib import Path
+
+CONF = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "della-status" / "watch.json"
+OUT = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "della" / "status.json"
+HOST = os.environ.get("DELLA_HOST", "della")
+MASTER = Path(__file__).resolve().with_name("della-master")
+MARK = "@@DELLA_STATUS@@"
+
+
+def load_conf():
+    return json.loads(CONF.read_text()) if CONF.exists() else {}
+
+
+def save_conf(conf):
+    CONF.parent.mkdir(parents=True, exist_ok=True); CONF.write_text(json.dumps(conf, indent=1))
+
+
+def remote_script(conf):
+    parts = ['echo "%s queue"' % MARK, 'squeue -u $USER --noheader --format="%i|%j|%T|%M|%R"']
+    for name, snippet in conf.items():
+        parts += ['echo "%s %s"' % (MARK, name), "( %s ) 2>&1; echo \"%s rc $?\"" % (snippet, MARK)]
+    return "\n".join(parts) + "\n"
+
+
+def parse(text):
+    queue, watch, cur, buf, rc = [], {}, None, [], {}
+    def close():
+        if cur == "queue":
+            for line in buf:
+                f = line.split("|", 4)
+                if len(f) == 5: queue.append(dict(zip(("id", "name", "state", "time", "reason"), f)))
+        elif cur is not None:
+            watch[cur] = {"out": "\n".join(buf).strip(), "rc": rc.get(cur)}
+    for line in text.splitlines():
+        if line.startswith(MARK):
+            tag = line[len(MARK):].strip()
+            if tag.startswith("rc "):
+                rc[cur] = int(tag[3:]); continue
+            close(); cur, buf = tag, []
+        else:
+            buf.append(line)
+    close()
+    return queue, watch
+
+
+def tick(conf):
+    status = {"ts": time.time(), "when": time.strftime("%Y-%m-%d %H:%M:%S"), "ok": False, "error": None, "queue": [], "watch": {}}
+    m = subprocess.run([str(MASTER)], capture_output=True, text=True)
+    if m.returncode != 0:
+        status["error"] = "no master: " + (m.stderr.strip() or m.stdout.strip()); return status
+    try:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", HOST, "bash -s"], input=remote_script(conf),
+                           capture_output=True, text=True, timeout=240)
+    except subprocess.TimeoutExpired:
+        status["error"] = "ssh timed out after 240 s"; return status
+    if r.returncode != 0 and not r.stdout.strip():
+        status["error"] = "ssh rc %d: %s" % (r.returncode, r.stderr.strip()[:300]); return status
+    status["queue"], status["watch"] = parse(r.stdout); status["ok"] = True
+    return status
+
+
+def write(status):
+    OUT.parent.mkdir(parents=True, exist_ok=True); tmp = OUT.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(status, indent=1)); os.replace(tmp, OUT)
+
+
+def show(name=None):
+    if not OUT.exists(): print("no status yet (%s)" % OUT); return 1
+    s = json.loads(OUT.read_text()); age = int(time.time() - s["ts"])
+    print("%s (%d s ago) %s" % (s["when"], age, "ok" if s["ok"] else "FAILED: %s" % s["error"]))
+    if name:
+        w = s["watch"].get(name); print(w["out"] if w else "no watch named %s" % name); return 0
+    for q in s["queue"]: print("  %(id)s %(name)s %(state)s %(time)s %(reason)s" % q)
+    for k, w in s["watch"].items(): print("== %s (rc %s)\n%s" % (k, w["rc"], w["out"]))
+    return 0
+
+
+def main(argv):
+    cmd = argv[0] if argv else "show"
+    if cmd == "path": print(OUT); return 0
+    if cmd == "list": print(json.dumps(load_conf(), indent=1)); return 0
+    if cmd == "add": c = load_conf(); c[argv[1]] = argv[2]; save_conf(c); print("added %s" % argv[1]); return 0
+    if cmd == "rm": c = load_conf(); c.pop(argv[1], None); save_conf(c); print("removed %s" % argv[1]); return 0
+    if cmd == "show": return show(argv[1] if len(argv) > 1 else None)
+    if cmd == "once": write(tick(load_conf())); return show()
+    if cmd == "run":
+        interval = int(argv[argv.index("--interval") + 1]) if "--interval" in argv else 300
+        if interval < 120: sys.exit("della-status: the interval floor is 120 s; the gateway blocks addresses that connect faster")
+        while True:
+            t0 = time.time(); write(tick(load_conf())); time.sleep(max(30, interval - (time.time() - t0)))
+    sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

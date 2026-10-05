@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Job-health watch for Della jobs — run it LOCALLY (it ssh-polls della).
+#
+#   gpu-idle-watch <JOBID> [ALERT_MIN=45] [TICK_SEC=120]     (.zetteldev/della/bin)
+#
+# Della's utilization daemon AUTOMATICALLY CANCELS any job with a GPU at 0% for 90 minutes, but
+# that fuse is only the loudest of the ways a GPU job wastes an allocation. This watch samples
+# every GPU on the job's node each tick (a burst over BURST_SEC, so brief judge/embed spikes count
+# as activity) and raises a distinct, greppable alert for each failure shape we have actually been
+# bitten by:
+#
+#   GPU_DEAD_MINUTE   a card read 0% across an ENTIRE burst (>=60s of true idle). The earliest
+#                     honest signal; everything below is a slower confirmation of it.
+#   GPU_IDLE_ALERT    a card's zero-streak crossed ALERT_MIN (default 45 = half the daemon's fuse).
+#   GPU_NEVER_STARTED job has been RUNNING for STARTUP_MIN with no card EVER active — the server
+#                     never came up (2026-08-21: an OOMed colocated embedder held the driver in
+#                     wait_for_server while both cards idled).
+#   GPU_IMBALANCE     one card busy while another is dead — the colocation pathology: a private or
+#                     crashed embedder caps the whole job at tp/(tp+1) efficiency.
+#   GPU_UNDERUSED     mean utilization below UNDER_PCT for UNDER_TICKS consecutive ticks — the
+#                     silent waste: the job runs, the science is slow, nothing ever alerts.
+#   GPU_MEM_TIGHT     free memory on a card below MEM_FREE_MIN_GB — a colocated server about to
+#                     fail to allocate (the fractions of all servers on a card must sum below 1).
+#   JOB_LOG_ERROR     the job log matched FATAL / OOM / traceback / "not ready after" (set
+#                     WATCH_LOG to the log path, remote-side).
+#   NO_PROGRESS       PROGRESS_GLOB's file count has not grown for PROGRESS_TICKS ticks — the job
+#                     is warm and busy but producing nothing.
+#
+# Every alert repeats at most once per ALERT_COOLDOWN (default 15min) so a long watch stays
+# readable. A one-line status prints every STATUS_EVERY ticks. Handles requeues: node changes reset
+# the streaks. Single-node jobs only.
+#
+# env: DELLA_HOST (default della) · WATCH_LOG · PROGRESS_GLOB · BURST_SEC=60 · UNDER_PCT=25
+#      UNDER_TICKS=3 · STARTUP_MIN=15 · MEM_FREE_MIN_GB=2 · PROGRESS_TICKS=5 · ALERT_COOLDOWN=900
+set -u
+J="${1:?usage: gpu-idle-watch JOBID [ALERT_MIN] [TICK_SEC]}"
+ALERT_MIN="${2:-45}"
+TICK="${3:-300}"
+
+HOST="${DELLA_HOST:-della}"
+"$(dirname "$0")/della-master" >/dev/null || echo "gpu-idle-watch: no control master to Della; every tick would be a fresh handshake (the gateway blocks those)" >&2
+BURST_SEC="${BURST_SEC:-60}"
+BURST_GAP="${BURST_GAP:-5}"
+UNDER_PCT="${UNDER_PCT:-25}"
+UNDER_TICKS="${UNDER_TICKS:-3}"
+STARTUP_MIN="${STARTUP_MIN:-15}"
+MEM_FREE_MIN_GB="${MEM_FREE_MIN_GB:-2}"
+PROGRESS_TICKS="${PROGRESS_TICKS:-5}"
+ALERT_COOLDOWN="${ALERT_COOLDOWN:-900}"
+STATUS_EVERY="${STATUS_EVERY:-3}"
+WATCH_LOG="${WATCH_LOG:-}"
+PROGRESS_GLOB="${PROGRESS_GLOB:-}"
+
+declare -A ZERO_SINCE      # gpu -> epoch its zero-streak began
+declare -A LAST_ALERT      # alert key -> epoch last emitted
+PREV_NODE=""; TICKN=0; UNDER_RUN=0; EVER_ACTIVE=0; RUN_SINCE=0
+PROGRESS_LAST=-1; PROGRESS_FLAT=0
+
+alert() {  # alert KEY MESSAGE — deduped by KEY for ALERT_COOLDOWN seconds
+  local key="$1"; shift
+  local now; now=$(date +%s)
+  local last="${LAST_ALERT[$key]:-0}"
+  if [ $(( now - last )) -ge "$ALERT_COOLDOWN" ]; then
+    echo "$(date '+%H:%M:%S') $* "
+    LAST_ALERT[$key]=$now
+  fi
+}
+
+while true; do
+  TICKN=$((TICKN + 1))
+  INFO=$(ssh "$HOST" "squeue -j $J -h -o '%T %N' 2>/dev/null" 2>/dev/null)
+  STATE=$(echo "$INFO" | awk '{print $1}')
+  NODE=$(echo "$INFO" | awk '{print $2}')
+
+  if [ -z "$STATE" ]; then
+    echo "gpu-idle-watch: job $J left the queue (done/cancelled) — watch ends"
+    exit 0
+  fi
+  if [ "$STATE" != "RUNNING" ]; then
+    [ $((TICKN % STATUS_EVERY)) -eq 1 ] && echo "gpu-idle-watch: job $J $STATE — waiting"
+    sleep "$TICK"; continue
+  fi
+  if [ "$NODE" != "$PREV_NODE" ]; then
+    ZERO_SINCE=(); LAST_ALERT=(); PREV_NODE="$NODE"
+    UNDER_RUN=0; EVER_ACTIVE=0; RUN_SINCE=$(date +%s)
+    echo "gpu-idle-watch: job $J running on $NODE — streaks reset"
+  fi
+
+  # ---- burst sample: raw "idx util mem_used mem_total" lines, aggregated locally ----
+  NS=$(( BURST_SEC / BURST_GAP )); [ "$NS" -lt 2 ] && NS=2
+  RAW=$(ssh "$HOST" "ssh -o ConnectTimeout=8 -o BatchMode=yes $NODE '
+    for s in \$(seq 1 $NS); do
+      nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits
+      sleep $BURST_GAP
+    done' 2>/dev/null" 2>/dev/null)
+  if [ -z "$RAW" ]; then
+    alert "sample" "SAMPLE_FAILED job=$J node=$NODE — cannot reach the node; will retry"
+    sleep "$TICK"; continue
+  fi
+
+  # per-gpu: zeros n mean max mem_used mem_total
+  STATS=$(echo "$RAW" | tr -d ' ' | awk -F, '
+    { n[$1]++; s[$1]+=$2; if ($2+0 > mx[$1]) mx[$1]=$2; if ($2+0 == 0) z[$1]++; mu[$1]=$3; mt[$1]=$4 }
+    END { for (g in n) printf "%s %d %d %d %d %d %d\n", g, z[g], n[g], s[g]/n[g], mx[g], mu[g], mt[g] }' | sort -n)
+
+  NOW=$(date +%s)
+  NG=0; TOT=0; MAXMEAN=0; MINMEAN=101; UTIL_REPORT=""; IDLE_REPORT=""
+  while read -r g zeros n mean mx mem_used mem_tot; do
+    [ -z "${g:-}" ] && continue
+    NG=$((NG + 1)); TOT=$(( TOT + mean ))
+    [ "$mean" -gt "$MAXMEAN" ] && MAXMEAN=$mean
+    [ "$mean" -lt "$MINMEAN" ] && MINMEAN=$mean
+    UTIL_REPORT+=" g$g:${mean}%"
+
+    if [ "$mx" -gt 0 ]; then                       # any activity in the burst
+      EVER_ACTIVE=1
+      unset "ZERO_SINCE[$g]" 2>/dev/null || true
+    else
+      : "${ZERO_SINCE[$g]:=$NOW}"
+      IDLE_M=$(( (NOW - ZERO_SINCE[$g]) / 60 ))
+      IDLE_REPORT+=" gpu$g:${IDLE_M}m"
+      alert "dead$g" "GPU_DEAD_MINUTE job=$J node=$NODE gpu=$g — 0% across the whole ${BURST_SEC}s burst (idle≈${IDLE_M}min). Something is not being fed: a server that never came up, a crashed sidecar, or a driver blocked upstream."
+      if [ "$IDLE_M" -ge "$ALERT_MIN" ]; then
+        alert "idle$g" "GPU_IDLE_ALERT job=$J node=$NODE gpu=$g idle≈${IDLE_M}min — the daemon cancels at 90min; nudge the service on gpu$g or expect cancellation"
+      fi
+    fi
+
+    FREE_GB=$(( (mem_tot - mem_used) / 1024 ))
+    if [ "$FREE_GB" -lt "$MEM_FREE_MIN_GB" ]; then
+      alert "mem$g" "GPU_MEM_TIGHT job=$J node=$NODE gpu=$g free=${FREE_GB}GiB of $(( mem_tot / 1024 ))GiB — a colocated server may fail to allocate; the fractions of all servers on a card must sum below 1"
+    fi
+  done <<< "$STATS"
+
+  AVG=0; [ "$NG" -gt 0 ] && AVG=$(( TOT / NG ))
+
+  # ---- job-shape diagnostics ----
+  RUN_MIN=$(( (NOW - RUN_SINCE) / 60 ))
+  if [ "$EVER_ACTIVE" -eq 0 ] && [ "$RUN_MIN" -ge "$STARTUP_MIN" ]; then
+    alert "nostart" "GPU_NEVER_STARTED job=$J node=$NODE — RUNNING ${RUN_MIN}min and no GPU has ever been active. The server almost certainly never came up; check the vllm/embed logs rather than waiting."
+  fi
+  if [ "$NG" -gt 1 ] && [ "$MAXMEAN" -ge 30 ] && [ "$MINMEAN" -le 2 ]; then
+    alert "imbal" "GPU_IMBALANCE job=$J node=$NODE — busiest card ${MAXMEAN}%, idlest ${MINMEAN}%. One card is carrying the job while another sits: a dead or private sidecar caps throughput and feeds the idle fuse."
+  fi
+  if [ "$EVER_ACTIVE" -eq 1 ] && [ "$AVG" -lt "$UNDER_PCT" ]; then
+    UNDER_RUN=$((UNDER_RUN + 1))
+    if [ "$UNDER_RUN" -ge "$UNDER_TICKS" ]; then
+      alert "under" "GPU_UNDERUSED job=$J node=$NODE avg=${AVG}% for $UNDER_RUN ticks (<${UNDER_PCT}%) — the allocation is running but starved. Raise concurrency/batching, or shard fewer jobs over more work."
+    fi
+  else
+    UNDER_RUN=0
+  fi
+
+  if [ -n "$WATCH_LOG" ]; then
+    HIT=$(ssh "$HOST" "tail -n 300 $WATCH_LOG 2>/dev/null | grep -aiE 'FATAL|CUDA out of memory|out of memory|Traceback|not ready after|EngineCore failed|CANCELLED|srun: error' | tail -n 2" 2>/dev/null)
+    [ -n "$HIT" ] && alert "log" "JOB_LOG_ERROR job=$J — $(echo "$HIT" | tr '\n' ' | ' | cut -c1-300)"
+  fi
+
+  if [ -n "$PROGRESS_GLOB" ]; then
+    CNT=$(ssh "$HOST" "ls -1 $PROGRESS_GLOB 2>/dev/null | wc -l" 2>/dev/null)
+    CNT="${CNT:-0}"
+    if [ "$CNT" -eq "$PROGRESS_LAST" ]; then
+      PROGRESS_FLAT=$((PROGRESS_FLAT + 1))
+      if [ "$PROGRESS_FLAT" -ge "$PROGRESS_TICKS" ]; then
+        alert "prog" "NO_PROGRESS job=$J — outputs stuck at $CNT for $PROGRESS_FLAT ticks. GPUs may look busy while the work loops or retries."
+      fi
+    else
+      PROGRESS_FLAT=0; PROGRESS_LAST="$CNT"
+    fi
+  fi
+
+  if [ $((TICKN % STATUS_EVERY)) -eq 0 ]; then
+    echo "gpu-util: $J avg=${AVG}%${UTIL_REPORT}; idle streaks:${IDLE_REPORT:- none}$([ -n "$PROGRESS_GLOB" ] && echo "; outputs=$PROGRESS_LAST")"
+  fi
+  SLEEP=$(( TICK - BURST_SEC )); [ "$SLEEP" -lt 5 ] && SLEEP=5
+  sleep "$SLEEP"
+done

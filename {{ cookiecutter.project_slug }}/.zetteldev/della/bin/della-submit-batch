@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# della-submit-batch — run several `della-submit --no-wait` submissions from one batch file, serially, on the Della login node,
+# appending one result line per job to a log as each is queued. The laptop's `just della-sbatch-bg` writes the batch, pushes
+# ONCE, ships it here, and returns; a Monitor on the log then reports the ids as they arrive (the author's standing policy of
+# 2026-09-22: nothing in the foreground past a minute).
+#
+#   della-submit-batch <batch file> <log file>
+#
+# Batch file: one submission per line, `<label>|<della-submit arguments...>` (the arguments exactly as they would follow
+# `della-submit --no-wait`, script path included; blank lines and lines starting with # are skipped). Log lines:
+#   <label>|<job id>|ok            queued
+#   <label>|-|FAILED <last stderr line>   refused by the gate; the full stderr is in <log>.<label>.err
+# and a final `BATCH_DONE <queued>/<total>`.
+set -uo pipefail
+BATCH="${1:?usage: della-submit-batch <batch file> <log file>}"; LOG="${2:?usage: della-submit-batch <batch file> <log file>}"
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO="$(cd "$BIN/../../.." && pwd)"
+cd "$REPO"; mkdir -p "$(dirname "$LOG")"; : > "$LOG"
+BRANCH="$(git branch --show-current)"; git pull -q --ff-only origin "$BRANCH" 2>>"$LOG.pull.err" || echo "pull|-|FAILED $(tail -n 1 "$LOG.pull.err")" >> "$LOG"
+total=0; queued=0
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ -z "$line" || "$line" == \#* ]] && continue
+  label="${line%%|*}"; args="${line#*|}"; total=$((total + 1))
+  err="$LOG.$label.err"
+  # shellcheck disable=SC2086
+  out="$("$BIN/della-submit" --no-wait $args 2>"$err")"; printf '%s\n' "$out" > "$err.out"
+  job="$(cat "$err.out" "$err" | grep -oE 'della-submit: job [0-9]+' | grep -oE '[0-9]+$' | tail -n 1)"      # the gate prints the id on stdout; refusals go to stderr
+  if [[ -n "$job" ]]; then echo "$label|$job|ok" >> "$LOG"; queued=$((queued + 1))
+  else echo "$label|-|FAILED $(grep -v '^warning\|VIRTUAL_ENV\|NPU\|RouterReplay' "$err" | tail -n 1 | cut -c1-160)" >> "$LOG"; fi
+done < "$BATCH"
+echo "BATCH_DONE $queued/$total" >> "$LOG"

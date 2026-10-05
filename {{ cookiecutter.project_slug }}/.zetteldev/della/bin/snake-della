@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# snake-della — run a Snakemake target of an experiment ON DELLA from this machine: push the branch, pull it on
+# the login node, start `snakemake` under the Della profile in a tmux window named after the experiment, and
+# tail its log here until the run ends. Rerunning attaches to the log of a run already in progress.
+#   snake-della <experiment dir name> <target> [snakemake args...]
+set -uo pipefail
+EXP="${1:?experiment}"; TARGET="${2:?target}"; shift 2; ARGS="$*"
+REPO="$(cd "$(dirname "$0")/../../.." && pwd)"; cd "$REPO"
+cfg() { python3 .zetteldev/config.py "$1"; }
+DELLA=$(cfg della_host) && DREPO=$(cfg della_repo) || exit 1
+BR="$(git branch --show-current)"; SESS="smk-${EXP%%-*}"
+if [[ -n "$(git status --porcelain --untracked-files=no --ignore-submodules)" ]]; then
+  echo "snake-della: uncommitted changes here would not reach Della; commit them first (git status --short):" >&2; git status --short --untracked-files=no >&2; exit 1
+fi
+git push -q origin "$BR" || { echo "push failed"; exit 1; }
+ssh -o ConnectTimeout=20 "$DELLA" "
+  cd $DREPO && git pull -q origin $BR && cd experiments/$EXP || exit 1
+  mkdir -p meta; LOG=meta/snakemake-$TARGET.log
+  if tmux has-session -t $SESS 2>/dev/null; then echo 'attached to the running session'; else
+    tmux new-session -d -s $SESS \"cd $DREPO/experiments/$EXP && SNAKEMAKE_PROFILE=$DREPO/.zetteldev/snakemake/della $DREPO/.venv/bin/snakemake --keep-going $ARGS $TARGET >\$PWD/\$LOG 2>&1; echo SNAKE_EXIT \$? >>\$PWD/\$LOG; sleep 5\"
+    echo \"started tmux $SESS: snakemake $TARGET ($ARGS)\"; fi
+  tail -n 200 -f \$LOG | sed '/SNAKE_EXIT/q'
+" </dev/null
