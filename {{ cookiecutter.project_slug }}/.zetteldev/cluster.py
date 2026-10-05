@@ -115,14 +115,14 @@ _TUNNELS: dict[str, Any] = {}
 def _ports(name: str) -> tuple[int, int]:
     """Deterministic (scheduler, dashboard) ports for a named cluster.
 
-    Derived from the name so distinct clusters never collide and — critically —
+    Derived from the repository and the name so distinct clusters never collide and — critically —
     so the address is *stable across restarts*, letting clients and workers
     reconnect to a relaunched scheduler via the same scheduler-file.
     """
-    if name == "default":
-        return 8786, 8788  # not 8787: that is rustygate's default gateway port, and clikernel probes it first
-    offset = (zlib.crc32(name.encode()) % 200) * 2
-    sched = 8800 + offset
+    # the repository is part of the key: two repositories on one machine each run a "default" cluster from their own venv
+    key = f"{_REPO_ROOT.name}:{name}"
+    offset = (zlib.crc32(key.encode()) % 200) * 2
+    sched = 8800 + offset          # 8800..9199, clear of 8786/8787 (rustygate's gateway, which clikernel probes first)
     return sched, sched + 1
 
 
