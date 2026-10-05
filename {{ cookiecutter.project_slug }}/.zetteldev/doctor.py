@@ -95,8 +95,9 @@ def check_repo(s):
     if not py.exists(): fail("repo", ".venv absent", "THE WORKSTATION: uv sync")
     else:
         rc, out = sh([str(py), "-c", "from zetteldev.della import load_targets; t = load_targets(); bad = sorted({v[v.find('$'):v.find('}', v.find('$')) + 1] for c in t.values() for v in c.values() if isinstance(v, str) and '${' in v}); print(len(t)); print('UNRESOLVED ' + ' '.join(bad) if bad else 'resolved')"], timeout=60)
-        if rc == 0 and "UNRESOLVED" in out: fail("repo", f"the registry has unresolved placeholders: {out.split('UNRESOLVED')[1].strip()}", "PER REPOSITORY: [tool.zetteldev] or PER PERSON: config.toml"); rc = -1
-        ok("repo", f"zetteldev imports; {out.split()[0]} targets resolve") if rc == 0 else fail("repo", f"zetteldev does not import or the registry does not resolve: {out.splitlines()[-1] if out else rc}", "PER REPOSITORY: uv sync, then the registries")
+        if rc == 0 and "UNRESOLVED" in out: fail("repo", f"the registry has unresolved placeholders: {out.split('UNRESOLVED')[1].strip()}", "PER REPOSITORY: [tool.zetteldev] or PER PERSON: config.toml")
+        elif rc == 0: ok("repo", f"zetteldev imports; {out.split()[0]} targets resolve")
+        else: fail("repo", f"zetteldev does not import or the registry does not resolve: {out.splitlines()[-1] if out else rc}", "PER REPOSITORY: uv sync, then the registries")
     dvc = ROOT / ".dvc" / "config"
     if dvc.exists() and "remote" in dvc.read_text(): ok("data", ".dvc/config with a remote")
     else: fail("data", ".dvc/config missing or without a remote", "PER REPOSITORY: dvc init and the remotes")

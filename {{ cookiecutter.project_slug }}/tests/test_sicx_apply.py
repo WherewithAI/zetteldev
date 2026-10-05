@@ -4,7 +4,7 @@ cells to an open dialog (2026-09-11); this is the route that can. The plan is pu
 scratch dialog by .zetteldev/sicx_apply_probe.py."""
 import json, pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / ".zetteldev"))
-from sicx import plan_apply, file_cells  # noqa: E402
+pytest = __import__("pytest"); pytest.importorskip("solveit_client", reason="sicx wraps the solveit_client package, installed per person (`uv tool install solveit_client`)")\nfrom sicx import plan_apply, file_cells  # noqa: E402
 
 LIVE = [("a1", "code", "import pandas as pd"), ("b2", "note", "> **The paired run.**"), ("c3", "code", "fig = plot(df)")]
 
